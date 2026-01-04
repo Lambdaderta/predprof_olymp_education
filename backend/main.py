@@ -24,7 +24,7 @@ async def root():
         "message": f"Welcome to {settings.app_name}!",
         "status": "ok",
         "debug": settings.debug,
-        "database_url": settings.DATABASE_URL
+        "database_url": settings.db.DATABASE_URL
     }
 
 @app.get("/health")

@@ -9,7 +9,6 @@ class DatabaseHelper:
             self, 
             url: str,
             echo: bool = True,
-            echo_pool: bool = False,
             pool_size: int = 5,
             max_overflow: int = 10,
     ):
@@ -18,7 +17,6 @@ class DatabaseHelper:
             echo=echo,
             pool_size=pool_size,
             max_overflow=max_overflow,
-            # echo_pool убран, так как это не стандартный параметр в SQLAlchemy 2.0+
         )
         self.session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self.engine,
@@ -37,10 +35,9 @@ class DatabaseHelper:
             yield session
 
 
-# Создаем экземпляр с настройками из конфига
 db_helper = DatabaseHelper(
-    url=settings.DATABASE_URL,
-    echo=settings.DB_ECHO,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
+    url=settings.db.DATABASE_URL,
+    echo=settings.db.DB_ECHO,
+    pool_size=settings.db.DB_POOL_SIZE,
+    max_overflow=settings.db.DB_MAX_OVERFLOW,
 )

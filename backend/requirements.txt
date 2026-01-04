@@ -1,6 +1,7 @@
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.2
 aiosignal==1.4.0
+alembic==1.17.2
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.0
@@ -13,6 +14,8 @@ frozenlist==1.8.0
 greenlet==3.3.0
 h11==0.16.0
 idna==3.11
+Mako==1.3.10
+MarkupSafe==3.0.3
 multidict==6.7.0
 propcache==0.4.1
 pydantic==2.12.5
