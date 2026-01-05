@@ -8,7 +8,7 @@ class DataBaseConfig(BaseModel):
     # Настройки базы данных
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
-    DB_NAME: str = "shop"
+    DB_NAME: str = "aio_edu"
     DB_USER: str = "user"
     DB_PASSWORD: str = "password"
     DB_ECHO: bool = True  

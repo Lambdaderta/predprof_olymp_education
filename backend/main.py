@@ -1,8 +1,8 @@
 # main.py
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.config import settings
-from app.database import db_helper
+from app.core.config import settings
+from app.core.database import db_helper
 
 
 @asynccontextmanager
