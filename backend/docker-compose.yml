@@ -1,4 +1,5 @@
 services:
+  # --- Message Broker ---
   rabbitmq:
     image: rabbitmq:3-management-alpine
     hostname: rabbitmq
@@ -12,6 +13,13 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
+  nats:
+    image: nats:2.11-alpine
+    container_name: nats
+    ports:
+      - "4222:4222"
+
+  # --- Database ---
   pg:
     image: postgres
     environment:
@@ -29,32 +37,64 @@ services:
       timeout: 3s
       retries: 3
 
+  # --- Object Storage (S3) ---
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000" # Порт API (для твоего кода)
+      - "9001:9001" # Порт Консоли (для браузера)
+    environment:
+      MINIO_ROOT_USER: "minioadmin"     # Твой логин S3
+      MINIO_ROOT_PASSWORD: "minioadmin" # Твой пароль S3
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Утилита для автоматического создания бакета (папки) при старте
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/general;
+      /usr/bin/mc anonymous set public myminio/general;
+      exit 0;
+      "
+
+  # --- Tools & UI ---
   maildev:
     image: maildev/maildev
+    container_name: maildev
     environment:
       - TZ=Europe/Moscow
       - MAILDEV_WEB_PORT=1080
       - MAILDEV_SMTP_PORT=1025
     ports:
-      - "8080:1080"
-      - "1025:1025"
+      - "8080:1080" # UI почты
+      - "1025:1025" # SMTP порт
     logging:
       driver: "json-file"
       options:
         max-size: "1m"
 
-  nats:
-    image: nats:2.11-alpine
-    ports:
-      - "4222:4222"
-
   adminer:
     image: adminer
+    container_name: adminer
     ports:
-      - "8080:8080"
+      - "8081:8080" # !!! ИЗМЕНИЛ порт на 8081, чтобы не конфликтовал с maildev
 
   pgadmin:
     image: dpage/pgadmin4
+    container_name: pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.org
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -62,7 +102,7 @@ services:
     ports:
       - "5050:80"
 
-
 volumes:
   pgdata:
   rabbitmq-data:
+  minio_data: 
