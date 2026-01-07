@@ -90,7 +90,7 @@ services:
     image: adminer
     container_name: adminer
     ports:
-      - "8081:8080" # !!! ИЗМЕНИЛ порт на 8081, чтобы не конфликтовал с maildev
+      - "8081:8080" 
 
   pgadmin:
     image: dpage/pgadmin4
