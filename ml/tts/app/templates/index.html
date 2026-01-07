@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Service - Озвучка текста</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e1e5e9;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .tab.active {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 12px;
+            font-size: 16px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        
+        textarea:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+        
+        .file-input {
+            position: relative;
+            height: 60px;
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+        
+        .file-input:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        .file-input input {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        
+        .file-label {
+            text-align: center;
+            color: #666;
+            padding: 15px;
+        }
+        
+        .file-name {
+            display: block;
+            margin-top: 5px;
+            font-weight: 500;
+            color: #667eea;
+            word-break: break-all;
+        }
+        
+        select, input[type="range"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 12px;
+            font-size: 16px;
+            margin-top: 5px;
+            transition: border-color 0.3s;
+        }
+        
+        select:focus, input[type="range"]:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        
+        .range-value {
+            text-align: right;
+            margin-top: 5px;
+            font-weight: 500;
+            color: #667eea;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .btn i {
+            font-size: 18px;
+        }
+        
+        .audio-player {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+            display: none;
+        }
+        
+        .audio-player.show {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        audio {
+            width: 100%;
+            max-width: 500px;
+            margin: 15px auto;
+        }
+        
+        .download-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .download-link:hover {
+            background: #218838;
+            transform: translateY(-1px);
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .success {
+            color: #155724;
+            background: #d4edda;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .tabs {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 TTS Service</h1>
+            <p class="subtitle">Озвучка текста с помощью Edge TTS</p>
+        </header>
+        
+        <div class="content">
+            <div class="tabs">
+                <div class="tab active" data-tab="text">Текст</div>
+                <div class="tab" data-tab="file">Файл</div>
+            </div>
+            
+            <div id="error" class="error"></div>
+            <div id="success" class="success"></div>
+            
+            <div class="tab-content active" id="text-tab">
+                <div class="form-group">
+                    <label for="text-input">Введите текст для озвучки:</label>
+                    <textarea id="text-input" placeholder="Введите ваш текст здесь...">Привет! Это сервис озвучки текста. Попробуйте ввести любой текст и нажмите кнопку 'Озвучить'.</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="voice-select">Выберите голос:</label>
+                    <select id="voice-select">
+                        <option value="ru-RU-DmitryNeural">Дмитрий (мужской, русский)</option>
+                        <option value="ru-RU-SvetlanaNeural" selected>Светлана (женский, русский)</option>
+                        <option value="en-US-JennyNeural">Jenny (женский, английский)</option>
+                        <option value="en-US-GuyNeural">Guy (мужской, английский)</option>
+                        <option value="de-DE-KatjaNeural">Katja (женский, немецкий)</option>
+                        <option value="de-DE-ConradNeural">Conrad (мужской, немецкий)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="rate-input">Скорость речи:</label>
+                    <input type="range" id="rate-input" min="-50" max="50" value="0">
+                    <div class="range-value" id="rate-value">0%</div>
+                </div>
+                
+                <button id="text-submit" class="btn">
+                    <span class="loading" id="text-loading" style="display: none;"></span>
+                    Озвучить текст
+                </button>
+            </div>
+            
+            <div class="tab-content" id="file-tab">
+                <div class="form-group">
+                    <label for="file-input">Выберите текстовый файл:</label>
+                    <div class="file-input">
+                        <input type="file" id="file-input" accept=".txt,.md,.text">
+                        <div class="file-label">
+                            <div>📁 Перетащите файл сюда или кликните</div>
+                            <div class="file-name" id="file-name">Ни одного файла не выбрано</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="file-voice-select">Выберите голос:</label>
+                    <select id="file-voice-select">
+                        <option value="ru-RU-DmitryNeural">Дмитрий (мужской, русский)</option>
+                        <option value="ru-RU-SvetlanaNeural" selected>Светлана (женский, русский)</option>
+                        <option value="en-US-JennyNeural">Jenny (женский, английский)</option>
+                        <option value="en-US-GuyNeural">Guy (мужской, английский)</option>
+                    </select>
+                </div>
+                
+                <button id="file-submit" class="btn" disabled>
+                    <span class="loading" id="file-loading" style="display: none;"></span>
+                    Озвучить файл
+                </button>
+            </div>
+            
+            <div class="audio-player" id="audio-player">
+                <h3>🎵 Ваша озвучка готова!</h3>
+                <audio controls id="audio-element"></audio>
+                <a href="#" class="download-link" id="download-link" download="speech.mp3">⬇️ Скачать MP3 файл</a>
+            </div>
+        </div>
+        
+        <footer>
+            <p>© 2026 TTS Service | Используется Edge TTS от Microsoft</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Tabs functionality
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabId = tab.getAttribute('data-tab');
+                    
+                    // Update active tab
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    
+                    // Show corresponding content
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                });
+            });
+            
+            // Rate slider
+            const rateSlider = document.getElementById('rate-input');
+            const rateValue = document.getElementById('rate-value');
+            
+            rateSlider.addEventListener('input', function() {
+                const value = this.value;
+                rateValue.textContent = `${value}%`;
+            });
+            
+            // File input handling
+            const fileInput = document.getElementById('file-input');
+            const fileName = document.getElementById('file-name');
+            const fileSubmit = document.getElementById('file-submit');
+            
+            fileInput.addEventListener('change', function() {
+                if (this.files.length > 0) {
+                    const file = this.files[0];
+                    fileName.textContent = file.name;
+                    fileSubmit.disabled = false;
+                } else {
+                    fileName.textContent = 'Ни одного файла не выбрано';
+                    fileSubmit.disabled = true;
+                }
+            });
+            
+            // Form submissions
+            const textSubmit = document.getElementById('text-submit');
+            const textLoading = document.getElementById('text-loading');
+            const fileLoading = document.getElementById('file-loading');
+            const audioPlayer = document.getElementById('audio-player');
+            const audioElement = document.getElementById('audio-element');
+            const downloadLink = document.getElementById('download-link');
+            const errorElement = document.getElementById('error');
+            const successElement = document.getElementById('success');
+            
+            // Text form submission
+            textSubmit.addEventListener('click', async function() {
+                const text = document.getElementById('text-input').value.trim();
+                const voice = document.getElementById('voice-select').value;
+                const rate = document.getElementById('rate-input').value;
+                
+                if (!text) {
+                    showError('Пожалуйста, введите текст для озвучки');
+                    return;
+                }
+                
+                showLoading('text');
+                hideError();
+                hideSuccess();
+                
+                try {
+                    // Исправляем формат rate: добавляем + или - в зависимости от знака
+                    const rateValue = parseInt(rate);
+                    const formattedRate = rateValue >= 0 ? `+${rateValue}%` : `${rateValue}%`;
+                    
+                    const response = await fetch('/tts/text', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            text: text,
+                            voice: voice,
+                            rate: formattedRate  // Используем правильный формат
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Ошибка при генерации аудио');
+                    }
+                    
+                    const blob = await response.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    
+                    // Update audio player
+                    audioElement.src = audioUrl;
+                    downloadLink.href = audioUrl;
+                    downloadLink.download = `speech-${new Date().toISOString().replace(/[:.]/g, '-')}.mp3`;
+                    
+                    showAudioPlayer();
+                    showSuccess('Аудио успешно сгенерировано! Нажмите на плеер для прослушивания.');
+                } catch (error) {
+                    showError(`Ошибка: ${error.message}`);
+                } finally {
+                    hideLoading('text');
+                }
+            });
+            
+            // File form submission
+            fileSubmit.addEventListener('click', async function() {
+                const file = fileInput.files[0];
+                const voice = document.getElementById('file-voice-select').value;
+                
+                if (!file) {
+                    showError('Пожалуйста, выберите файл для озвучки');
+                    return;
+                }
+                
+                showLoading('file');
+                hideError();
+                hideSuccess();
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    if (voice) {
+                        formData.append('voice', voice);
+                    }
+                    
+                    const response = await fetch('/tts/file', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Ошибка при генерации аудио');
+                    }
+                    
+                    const blob = await response.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+                    
+                    // Update audio player
+                    audioElement.src = audioUrl;
+                    downloadLink.href = audioUrl;
+                    downloadLink.download = `${file.name.split('.')[0]}-speech.mp3`;
+                    
+                    showAudioPlayer();
+                    showSuccess(`Файл "${file.name}" успешно озвучен!`);
+                } catch (error) {
+                    showError(`Ошибка: ${error.message}`);
+                } finally {
+                    hideLoading('file');
+                }
+            });
+            
+            // Helper functions
+            function showLoading(type) {
+                if (type === 'text') {
+                    textLoading.style.display = 'inline-block';
+                    textSubmit.disabled = true;
+                } else if (type === 'file') {
+                    fileLoading.style.display = 'inline-block';
+                    fileSubmit.disabled = true;
+                }
+            }
+            
+            function hideLoading(type) {
+                if (type === 'text') {
+                    textLoading.style.display = 'none';
+                    textSubmit.disabled = false;
+                } else if (type === 'file') {
+                    fileLoading.style.display = 'none';
+                    fileSubmit.disabled = false;
+                }
+            }
+            
+            function showAudioPlayer() {
+                audioPlayer.classList.add('show');
+                audioPlayer.scrollIntoView({ behavior: 'smooth' });
+            }
+            
+            function showError(message) {
+                errorElement.textContent = message;
+                errorElement.style.display = 'block';
+                successElement.style.display = 'none';
+            }
+            
+            function hideError() {
+                errorElement.style.display = 'none';
+            }
+            
+            function showSuccess(message) {
+                successElement.textContent = message;
+                successElement.style.display = 'block';
+                errorElement.style.display = 'none';
+            }
+            
+            function hideSuccess() {
+                successElement.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
