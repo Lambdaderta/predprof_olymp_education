@@ -1,47 +1,84 @@
-# app/config.py
+# app/core/config.py
 from pydantic_settings import BaseSettings
-from pydantic import BaseModel
-
+from pydantic import BaseModel, Field, SecretStr
+from typing import List, Optional, Any
+from functools import lru_cache
+import os
 
 class DataBaseConfig(BaseModel):
-
-    DB_HOST: str = "localhost"
-    DB_PORT: int = 5432
-    DB_NAME: str = "aio_edu"
-    DB_USER: str = "user" 
-    DB_PASSWORD: str = "password" 
-    DB_ECHO: bool = True  
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 10
+    # Все поля обязательные, без значений по умолчанию!
+    DB_HOST: str = Field(..., description="Database host")
+    DB_PORT: int = Field(5432, description="Database port")
+    DB_NAME: str = Field(..., description="Database name")
+    DB_USER: str = Field(..., description="Database user")
+    DB_PASSWORD: SecretStr = Field(..., description="Database password")  # SecretStr скрывает значение в логах
+    DB_ECHO: bool = Field(False, description="Enable SQL echo")
+    DB_POOL_SIZE: int = Field(5, description="Database pool size")
+    DB_MAX_OVERFLOW: int = Field(10, description="Database max overflow")
 
     @property
     def DATABASE_URL(self) -> str:
-        return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"       
+        # SecretStr.get_secret_value() чтобы получить реальное значение
+        return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD.get_secret_value()}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"       
 
     naming_convention: dict[str, str] = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s",
+        "ix": "ix_%(column_0_label)s",
+        "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+        "ck": "ck_%(table_name)s_%(constraint_name)s",
+        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+        "pk": "pk_%(table_name)s",
     }
 
-class Settings(BaseSettings):
-    app_name: str = "AIO Edication"
-    debug: bool = True
-    cors_origins: list = [
-        "http://localhost:5137",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5137"
-    ]
-    static_dir: str = "static"
-    images_dir: str = "static/images"
+class MinIOConfig(BaseModel):
+    MINIO_ENDPOINT: str = Field(..., description="MinIO endpoint")
+    MINIO_ACCESS_KEY: str = Field(..., description="MinIO access key")
+    MINIO_SECRET_KEY: SecretStr = Field(..., description="MinIO secret key")
+    MINIO_SECURE: bool = Field(False, description="Use HTTPS for MinIO")
+    MINIO_BUCKET_NAME: str = Field("aio-edu", description="MinIO bucket name")
+    
+    @property
+    def minio_url(self) -> str:
+        protocol = "https" if self.MINIO_SECURE else "http"
+        return f"{protocol}://{self.MINIO_ENDPOINT}"
 
-    db: DataBaseConfig = DataBaseConfig()
+class AIConfig(BaseModel):
+    AI_API_BASE: str = Field(..., description="AI API base URL")
+    AI_DEFAULT_MODEL: str = Field("local-model", description="Default AI model")
+    AI_TIMEOUT: int = Field(60, description="AI request timeout in seconds")
+
+class SecurityConfig(BaseModel):
+    JWT_SECRET_KEY: SecretStr = Field(..., description="JWT secret key")  # Обязательное поле!
+    JWT_ALGORITHM: str = Field("HS256", description="JWT algorithm")
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(30, description="Access token expiration")
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = Field(7, description="Refresh token expiration")
+
+class Settings(BaseSettings):
+    app_name: str = Field("AIO Education", description="Application name")
+    debug: bool = Field(False, description="Debug mode")
+    cors_origins: List[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5137",
+            "http://localhost:3000",
+        ],
+        description="CORS origins"
+    )
+    static_dir: str = Field("static", description="Static files directory")
+    images_dir: str = Field("static/images", description="Images directory")
+
+    db: DataBaseConfig
+    minio: MinIOConfig
+    ai: AIConfig
+    security: SecurityConfig
 
     class Config:
         env_file = ".env"
         env_file_encoding = 'utf-8'
+        case_sensitive = False
+        env_nested_delimiter = '__'  # Для вложенных объектов
 
-settings = Settings()
+@lru_cache()
+def get_settings() -> Settings:
+    """Кэшированный экземпляр настроек"""
+    return Settings()
+
+settings = get_settings()
