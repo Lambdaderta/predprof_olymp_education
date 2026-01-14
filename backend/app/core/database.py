@@ -1,14 +1,13 @@
-# app/database.py
+# app/core/database.py
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, async_sessionmaker, AsyncSession
 from app.core.config import settings
-
 
 class DatabaseHelper:
     def __init__(
             self, 
             url: str,
-            echo: bool = True,
+            echo: bool = False,
             pool_size: int = 5,
             max_overflow: int = 10,
     ):
@@ -34,9 +33,11 @@ class DatabaseHelper:
         async with self.session_factory() as session:
             yield session
 
+# Получаем URL из конфигурации
+database_url = settings.db.DATABASE_URL
 
 db_helper = DatabaseHelper(
-    url=settings.db.DATABASE_URL,
+    url=database_url,
     echo=settings.db.DB_ECHO,
     pool_size=settings.db.DB_POOL_SIZE,
     max_overflow=settings.db.DB_MAX_OVERFLOW,
