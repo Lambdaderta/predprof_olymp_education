@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  llama-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - MODELS_DIR=/models
+      - LLAMA_CPP_PATH=/usr/local/bin/llama-server
+      - PORT=8000
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - INACTIVITY_TIMEOUT=${INACTIVITY_TIMEOUT:-60}
+    volumes:
+      # Монтируем локальную папку с моделями
+      - ./models:/models
+      # Для логирования (опционально)
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          memory: 2G

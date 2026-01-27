@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/
+.hg/
+.svn/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Тестовые файлы
+download.ipynb
+kitten.jpg
+rofl.jpg
+
+# Модели (будем монтировать)
+models/
+!models/.keep
+
+# Llama.cpp исходники
+llama.cpp/
+!llama.cpp/build/bin/llama-server
+
+# Документация
+*.md
+LICENSE

@@ -1,0 +1,4 @@
+models/
+.venv/
+llama.cpp/
+*.jpg
