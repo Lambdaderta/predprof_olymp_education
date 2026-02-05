@@ -32,4 +32,9 @@ export const authApi = {
     const response = await axiosClient.get('/auth/me');
     return response.data;
   },
+
+  getStats: async () => {
+    const response = await axiosClient.get('/auth/stats');
+    return response.data;
+  },
 };

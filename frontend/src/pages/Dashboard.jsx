@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Star, BarChart3, CheckCircle, GraduationCap, Brain, BookOpen } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { coursesApi } from '../api/coursesMock';
+import { coursesApi } from '../api/courses';
 
 const Dashboard = () => {
   const [courses, setCourses] = useState([]);
