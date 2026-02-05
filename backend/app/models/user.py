@@ -41,8 +41,12 @@ class User(Base):
     enrollments = relationship("Enrollment", back_populates="user")
     achievements = relationship("UserAchievement", back_populates="user")
 
+    elo_rating = Column(Integer, default=1000)
+
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email})>"
+    
+    
 
 class UserLimits(Base):
     __tablename__ = "user_limits"

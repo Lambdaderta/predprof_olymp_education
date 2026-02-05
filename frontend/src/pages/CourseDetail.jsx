@@ -1,47 +1,72 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, BookOpen, CheckCircle, BarChart3, StopCircle, Volume2, Award, Brain, Hash, Code, Lightbulb, RefreshCw, ChevronLeft, ChevronRight, Check, X } from 'lucide-react';
-import { coursesApi } from '../api/coursesMock';
+import { 
+  ArrowLeft, BookOpen, CheckCircle, BarChart3, StopCircle, 
+  Volume2, Brain, Hash, Lightbulb, ChevronDown, ChevronUp, 
+  Check, X, FileText, Play 
+} from 'lucide-react';
+import { coursesApi } from '../api/courses';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 const CourseDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   
-  // Состояния данных
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Состояния навигации внутри курса
-  const [viewMode, setViewMode] = useState('overview'); // overview, lecture, task
+  // Навигация
+  const [viewMode, setViewMode] = useState('overview'); 
   const [selectedLecture, setSelectedLecture] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
-  
-  // Состояния выполнения заданий
+  const [expandedLectures, setExpandedLectures] = useState({});
+
+  // Состояния ответов
+  // userAnswers[taskId] = { answer: "...", solution: "...", isCorrect: boolean }
   const [userAnswers, setUserAnswers] = useState({});
   const [showExplanation, setShowExplanation] = useState(false);
-  
-  // Text to Speech
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const synthRef = useRef(window.speechSynthesis);
-
+  
   useEffect(() => {
     const loadCourse = async () => {
       const data = await coursesApi.getById(id);
       if (data) {
         setCourse(data);
+        
+        // --- НОВАЯ ЛОГИКА ---
+        // Проходимся по всем лекциям и задачам, находим решенные (is_solved)
+        // и заранее заполняем userAnswers, чтобы они горели зеленым
+        const initialAnswers = {};
+        data.lectures.forEach(lecture => {
+            lecture.tasks.forEach(task => {
+                if (task.is_solved) {
+                    initialAnswers[task.id] = {
+                        answer: String(task.correctAnswer), // Или заглушка, т.к. мы не знаем что ответил юзер, если бек не вернул
+                        isCorrect: true,
+                        solution: ''
+                    };
+                }
+            });
+        });
+        setUserAnswers(initialAnswers);
+        // --------------------
+        
       } else {
         navigate('/courses');
       }
       setLoading(false);
     };
     loadCourse();
-    
-    // Cleanup speech
     return () => window.speechSynthesis.cancel();
   }, [id, navigate]);
 
-  // --- Методы для работы с задачами и лекциями ---
-  
+  // --- Хелперы ---
+
+  const toggleLectureExpand = (lectureId, e) => {
+    e.stopPropagation();
+    setExpandedLectures(prev => ({ ...prev, [lectureId]: !prev[lectureId] }));
+  };
+
   const handleLectureSelect = (lecture) => {
     setSelectedLecture(lecture);
     setViewMode('lecture');
@@ -51,20 +76,47 @@ const CourseDetail = () => {
   const handleTaskSelect = (task) => {
     setSelectedTask(task);
     setViewMode('task');
-    setUserAnswers({}); // Сброс ответов при открытии новой задачи
+    // Сбрасываем показ объяснения при входе в задачу, если она еще не решена
+    // Если решена (есть в userAnswers), то можно показать, если юзер сам захочет
     setShowExplanation(false);
     window.scrollTo(0, 0);
+  };
+
+  // Универсальная функция проверки
+  const checkAnswer = (taskId, type, value, extraData = {}) => {
+    const task = selectedTask; // или искать по taskId в списке
+    let isCorrect = false;
+
+    if (type === 'multiple-choice') {
+        isCorrect = (value === task.correctAnswer);
+    } else {
+        // Для numeric и open сравниваем строки
+        const userNorm = String(value).trim().replace(',', '.').toLowerCase();
+        const correctNorm = String(task.correctAnswer).trim().replace(',', '.').toLowerCase();
+        isCorrect = userNorm === correctNorm;
+    }
+
+    setUserAnswers(prev => ({
+      ...prev,
+      [taskId]: { 
+          answer: value, 
+          isCorrect,
+          solution: extraData.solution || '' 
+      }
+    }));
+    
+    coursesApi.submitTask(taskId, value, isCorrect);
   };
 
   const speakText = (text) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
+      const cleanText = text.replace(/[#*`_]/g, '');
+      const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'ru-RU';
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
       window.speechSynthesis.speak(utterance);
+      setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
     }
   };
 
@@ -73,146 +125,274 @@ const CourseDetail = () => {
     setIsSpeaking(false);
   };
 
-  const handleTaskAnswer = (taskId, answer, isCorrect) => {
-    setUserAnswers(prev => ({
-      ...prev,
-      [taskId]: { answer, isCorrect }
-    }));
-  };
-
-  if (loading) return <div className="p-10 text-center">Загрузка курса...</div>;
+  if (loading) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div></div>;
   if (!course) return null;
 
-  // --- Рендеринг различных состояний интерфейса ---
+  // --- Рендеринг инпутов задач ---
 
-  // 1. Обзор задания (Input)
   const renderTaskInput = () => {
     const task = selectedTask;
-    const userAnswer = userAnswers[task.id]?.answer || '';
+    const answerData = userAnswers[task.id];
+    const userAnswer = answerData?.answer || '';
+    const userSolution = answerData?.solution || ''; // Для open задач
+    const isAnswered = answerData?.isCorrect !== undefined;
 
-    if (task.type === 'multiple-choice') {
-      return (
-        <div className="space-y-3">
-          {task.options.map((option, index) => (
-            <button
-              key={index}
-              onClick={() => handleTaskAnswer(task.id, index, index === task.correctAnswer)}
-              className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                userAnswer === index
-                  ? (userAnswers[task.id]?.isCorrect
-                    ? 'bg-green-50 dark:bg-green-900/30 border-green-500'
-                    : 'bg-red-50 dark:bg-red-900/30 border-red-500')
-                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+    // 1. ЧИСЛОВОЙ ОТВЕТ (Numeric)
+    if (task.type === 'numeric') {
+        return (
+          <div className="space-y-4">
+            <input
+              type="text"
+              value={userAnswer}
+              disabled={isAnswered && answerData.isCorrect}
+              onChange={(e) => {
+                  // Обновляем локально без проверки (проверка по кнопке)
+                  setUserAnswers(prev => ({ ...prev, [task.id]: { ...prev[task.id], answer: e.target.value } }));
+              }}
+              className={`w-full px-4 py-3 rounded-lg border outline-none font-mono text-lg transition-all ${
+                 isAnswered 
+                    ? (answerData.isCorrect 
+                        ? "bg-green-50 dark:bg-green-900/20 border-green-500 text-green-700 dark:text-green-400" 
+                        : "bg-red-50 dark:bg-red-900/20 border-red-500 text-red-700 dark:text-red-400")
+                    : "bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 dark:text-white"
               }`}
-            >
-              <div className="flex items-center">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center mr-3 ${
-                  userAnswer === index
-                    ? (userAnswers[task.id]?.isCorrect ? 'bg-green-500 text-white' : 'bg-red-500 text-white')
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}>
-                  {userAnswer === index ? (
-                    userAnswers[task.id]?.isCorrect ? <Check size={14} /> : <X size={14} />
-                  ) : String.fromCharCode(65 + index)}
+              placeholder="Введите числовой ответ"
+              onKeyDown={(e) => e.key === 'Enter' && checkAnswer(task.id, 'numeric', userAnswer)}
+            />
+            <div className="flex justify-between items-center">
+                {isAnswered && (
+                    <span className={`font-medium ${answerData.isCorrect ? 'text-green-500' : 'text-red-500'}`}>
+                        {answerData.isCorrect ? 'Верно!' : 'Неверно, попробуйте еще раз'}
+                    </span>
+                )}
+                <button
+                    onClick={() => checkAnswer(task.id, 'numeric', userAnswer)}
+                    className="ml-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                >
+                    Проверить
+                </button>
+            </div>
+          </div>
+        );
+    }
+
+    // 2. ВЫБОР ОТВЕТА (Multiple Choice)
+    if (task.type === 'multiple-choice') {
+        return (
+          <div className="space-y-3">
+            {task.options.map((option, index) => {
+              const isSelected = userAnswer === index;
+              let itemClass = 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700';
+              let badgeClass = 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
+              
+              if (isSelected && isAnswered) {
+                  if (answerData.isCorrect) {
+                      itemClass = 'bg-green-50 dark:bg-green-900/30 border-green-500';
+                      badgeClass = 'bg-green-500 text-white';
+                  } else {
+                      itemClass = 'bg-red-50 dark:bg-red-900/30 border-red-500';
+                      badgeClass = 'bg-red-500 text-white';
+                  }
+              }
+
+              return (
+                <button
+                  key={index}
+                  onClick={() => checkAnswer(task.id, 'multiple-choice', index)}
+                  disabled={isAnswered && answerData.isCorrect}
+                  className={`w-full text-left p-4 rounded-xl border transition-all flex items-start ${itemClass}`}
+                >
+                  <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center mr-3 mt-0.5 transition-colors ${badgeClass}`}>
+                    {isSelected && isAnswered ? (
+                      answerData.isCorrect ? <Check size={14} /> : <X size={14} />
+                    ) : String.fromCharCode(65 + index)}
+                  </div>
+                  <div className="text-gray-800 dark:text-gray-200 w-full">
+                      <MarkdownRenderer content={option} className="prose-p:mb-0" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        );
+    }
+
+    // 3. ОТКРЫТЫЙ ОТВЕТ (Open - с двумя полями)
+    if (task.type === 'open') {
+        return (
+          <div className="space-y-6">
+            {/* Поле для решения (не проверяется автоматически) */}
+            <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Ход решения (черновик):
+                </label>
+                <textarea
+                  rows={6}
+                  value={userSolution}
+                  onChange={(e) => setUserAnswers(prev => ({
+                    ...prev,
+                    [task.id]: { ...prev[task.id], solution: e.target.value }
+                  }))}
+                  className="w-full px-4 py-3 rounded-lg border bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none font-sans"
+                  placeholder="Запишите здесь ваши рассуждения..."
+                />
+            </div>
+
+            {/* Поле для финального ответа (проверяется) */}
+            <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Финальный ответ (число или слово):
+                </label>
+                <div className="flex gap-4">
+                    <input
+                      type="text"
+                      value={userAnswer}
+                      disabled={isAnswered && answerData.isCorrect}
+                      onChange={(e) => setUserAnswers(prev => ({
+                        ...prev,
+                        [task.id]: { ...prev[task.id], answer: e.target.value }
+                      }))}
+                      className={`flex-grow px-4 py-3 rounded-lg border outline-none transition-all font-mono ${
+                         isAnswered 
+                            ? (answerData.isCorrect 
+                                ? "bg-green-50 dark:bg-green-900/20 border-green-500 text-green-700 dark:text-green-400" 
+                                : "bg-red-50 dark:bg-red-900/20 border-red-500 text-red-700 dark:text-red-400")
+                            : "bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 dark:text-white"
+                      }`}
+                      placeholder="Ответ"
+                      onKeyDown={(e) => e.key === 'Enter' && checkAnswer(task.id, 'open', userAnswer, { solution: userSolution })}
+                    />
+                    <button
+                        onClick={() => checkAnswer(task.id, 'open', userAnswer, { solution: userSolution })}
+                        disabled={!userAnswer.trim()}
+                        className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                    >
+                        Проверить
+                    </button>
                 </div>
-                <span className="text-gray-800 dark:text-gray-200">{option}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      );
+                {isAnswered && (
+                    <div className={`mt-2 font-medium ${answerData.isCorrect ? 'text-green-500' : 'text-red-500'}`}>
+                        {answerData.isCorrect ? 'Ответ верный! Решение сохранено.' : 'Ответ не сходится с эталоном. Проверьте вычисления.'}
+                    </div>
+                )}
+            </div>
+          </div>
+        );
     }
     
-    // Numeric and Code inputs are similar... (omitted for brevity, keep your original logic here)
-    return <div className="text-gray-500">Тип задачи пока не поддерживается в демо</div>;
+    return <div className="text-gray-500">Тип задачи не поддерживается</div>;
   };
 
-  // 2. Рендер Лекции
+
   if (viewMode === 'lecture' && selectedLecture) {
     return (
       <div>
         <div className="flex items-center mb-6 cursor-pointer text-gray-600 dark:text-gray-400 hover:text-indigo-500 transition-colors" 
              onClick={() => setViewMode('overview')}>
           <ArrowLeft className="mr-2" size={20} />
-          <span className="font-medium">Вернуться к курсу</span>
+          <span className="font-medium">К плану курса</span>
         </div>
         
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 md:p-8 shadow-xl border border-gray-100 dark:border-gray-700">
-          <div className="flex justify-between items-start mb-6">
-            <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{selectedLecture.title}</h3>
-              <p className="text-gray-500 dark:text-gray-400 mt-1">Лекция курса "{course.title}"</p>
-            </div>
+          <div className="flex justify-between items-start mb-6 border-b dark:border-gray-700 pb-4">
+            <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{selectedLecture.lecture_name || selectedLecture.title}</h3>
             <button
               onClick={() => isSpeaking ? stopSpeaking() : speakText(selectedLecture.content)}
-              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               {isSpeaking ? <StopCircle size={24} className="text-red-500" /> : <Volume2 size={24} />}
             </button>
           </div>
-          <div className="prose prose-lg max-w-none dark:prose-invert">
-            <p className="whitespace-pre-line text-gray-700 dark:text-gray-300 leading-relaxed">
-              {selectedLecture.content}
-            </p>
-          </div>
-        </div>
-        
-        {/* Список задач лекции */}
-        {selectedLecture.tasks?.length > 0 && (
-          <div className="mt-8 bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-gray-700">
-             <div className="border-b dark:border-gray-700 pb-4 mb-6">
-               <h3 className="text-xl font-bold text-gray-900 dark:text-white">Практические задания</h3>
+          
+          <MarkdownRenderer content={selectedLecture.content} />
+          
+          {selectedLecture.tasks?.length > 0 && (
+             <div className="mt-10 pt-6 border-t dark:border-gray-700">
+                <h4 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Закрепление материала:</h4>
+                <div className="grid grid-cols-1 gap-3">
+                   {selectedLecture.tasks.map((task, idx) => {
+                       const isDone = userAnswers[task.id]?.isCorrect;
+                       return (
+                          <button
+                            key={task.id}
+                            onClick={() => handleTaskSelect(task)}
+                            className={`flex items-center p-3 rounded-lg transition-colors text-left border ${
+                                isDone 
+                                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                                : 'bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border-transparent'
+                            }`}
+                          >
+                             <div className={`w-6 h-6 rounded flex items-center justify-center text-xs mr-3 font-bold ${
+                                 isDone 
+                                 ? 'bg-green-200 dark:bg-green-800 text-green-700 dark:text-green-300'
+                                 : 'bg-indigo-200 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300'
+                             }`}>
+                               {isDone ? <Check size={14}/> : idx + 1}
+                             </div>
+                             <span className={`${isDone ? 'text-green-900 dark:text-green-100' : 'text-indigo-900 dark:text-indigo-100'} font-medium`}>
+                                {task.type === 'open' ? 'Открытый вопрос' : 'Задача'}
+                             </span>
+                          </button>
+                       );
+                   })}
+                </div>
              </div>
-             {selectedLecture.tasks.map((task) => (
-               <div
-                 key={task.id}
-                 onClick={() => handleTaskSelect(task)}
-                 className="mb-4 p-4 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/50 hover:bg-indigo-50 dark:hover:bg-gray-700 border border-transparent hover:border-indigo-200 transition-all flex items-start"
-               >
-                 <div className="bg-indigo-100 dark:bg-indigo-900/50 p-2 rounded-lg mr-3 mt-1 text-indigo-600 dark:text-indigo-400">
-                   <Hash size={20} />
-                 </div>
-                 <div>
-                   <h4 className="font-bold text-gray-900 dark:text-gray-100">{task.question}</h4>
-                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Нажмите, чтобы решить</p>
-                 </div>
-               </div>
-             ))}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     );
   }
 
-  // 3. Рендер Задачи
   if (viewMode === 'task' && selectedTask) {
+    const isAnswered = userAnswers[selectedTask.id]?.isCorrect !== undefined;
+
     return (
       <div>
         <div className="flex items-center mb-6 cursor-pointer text-gray-600 dark:text-gray-400 hover:text-indigo-500 transition-colors" 
-             onClick={() => setViewMode('lecture')}>
+             onClick={() => setViewMode('overview')}>
           <ArrowLeft className="mr-2" size={20} />
-          <span className="font-medium">Вернуться к лекции</span>
+          <span className="font-medium">Вернуться к списку</span>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 md:p-8 shadow-xl border border-gray-100 dark:border-gray-700">
-           <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Вопрос:</h3>
-           <p className="text-lg mb-6 text-gray-800 dark:text-gray-200">{selectedTask.question}</p>
+           <div className="flex items-center mb-4">
+              <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 p-2 rounded-lg mr-3">
+                  {selectedTask.type === 'numeric' && <Hash size={20} />}
+                  {selectedTask.type === 'multiple-choice' && <CheckCircle size={20} />}
+                  {selectedTask.type === 'open' && <FileText size={20} />}
+              </span>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Задание</h3>
+           </div>
+           
+           <div className="mb-8 text-lg text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-700/30 p-5 rounded-xl border border-gray-100 dark:border-gray-600">
+              <MarkdownRenderer content={selectedTask.question} className="prose-p:mb-0" />
+           </div>
            
            {renderTaskInput()}
 
-           <div className="flex justify-end mt-6">
-              <button 
-                onClick={() => setShowExplanation(!showExplanation)}
-                className="flex items-center text-indigo-500 hover:text-indigo-600 font-medium"
-              >
-                <Lightbulb size={18} className="mr-2" />
-                {showExplanation ? 'Скрыть объяснение' : 'Показать объяснение'}
-              </button>
+           {/* Кнопка "Показать объяснение" только если ответ уже дан (любой) */}
+           <div className="flex justify-end mt-8 border-t dark:border-gray-700 pt-4">
+              {isAnswered ? (
+                  <button 
+                    onClick={() => setShowExplanation(!showExplanation)}
+                    className="flex items-center text-indigo-500 hover:text-indigo-600 font-medium transition-colors"
+                  >
+                    <Lightbulb size={18} className="mr-2" />
+                    {showExplanation ? 'Скрыть объяснение' : 'Показать объяснение'}
+                  </button>
+              ) : (
+                  <div className="text-sm text-gray-400 italic">
+                      Попробуйте решить задачу, чтобы увидеть объяснение.
+                  </div>
+              )}
            </div>
 
            {showExplanation && selectedTask.explanation && (
-             <div className="mt-4 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
-               <p className="text-gray-700 dark:text-indigo-200">{selectedTask.explanation}</p>
+             <div className="mt-4 p-5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50 animation-fade-in">
+               <h4 className="font-bold text-indigo-900 dark:text-indigo-200 mb-2 flex items-center">
+                   <Brain size={18} className="mr-2"/> Пояснение:
+               </h4>
+               <MarkdownRenderer content={selectedTask.explanation} />
              </div>
            )}
         </div>
@@ -220,7 +400,6 @@ const CourseDetail = () => {
     );
   }
 
-  // 4. Default: Обзор курса
   return (
     <div>
       <div className="flex items-center mb-6 cursor-pointer text-gray-600 dark:text-gray-400 hover:text-indigo-500" onClick={() => navigate('/courses')}>
@@ -231,55 +410,96 @@ const CourseDetail = () => {
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 md:p-8 mb-8 shadow-xl border border-gray-100 dark:border-gray-700">
         <div className="flex flex-col md:flex-row justify-between mb-6">
           <div>
-            <span className="text-xs font-medium px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300">
-              {course.level}
-            </span>
+            <div className="flex items-center space-x-3 mb-2">
+                <span className="text-xs font-medium px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300">{course.level}</span>
+                <span className="flex items-center text-xs font-medium px-2 py-1 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400">
+                    <BarChart3 size={12} className="mr-1"/> Рейтинг: {course.rating_avg}
+                </span>
+            </div>
             <h2 className="text-3xl font-bold mt-2 text-gray-900 dark:text-white">{course.title}</h2>
             <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-2xl">{course.description}</p>
           </div>
-          <div className="mt-4 md:mt-0 flex items-center text-indigo-500 dark:text-indigo-400">
-             <Brain className="mr-2" size={24} />
-             <span className="font-medium">AI Tutor Active</span>
-          </div>
         </div>
 
-        {/* Прогресс бар */}
-        <div className="mb-8">
-          <div className="flex justify-between text-sm mb-1 text-gray-600 dark:text-gray-400">
-            <span>Ваш прогресс</span>
-            <span>{course.progress}%</span>
-          </div>
-          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
-            <div 
-              className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-              style={{ width: `${course.progress}%` }}
-            ></div>
-          </div>
-        </div>
-
-        {/* Список лекций */}
-        <div className="space-y-4">
+        <div className="mt-8 space-y-3">
           <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Программа курса</h3>
           {course.lectures.map((lecture, idx) => (
-            <div
-              key={lecture.id}
-              onClick={() => handleLectureSelect(lecture)}
-              className="p-4 rounded-xl cursor-pointer bg-gray-50 dark:bg-gray-700/30 hover:bg-white dark:hover:bg-gray-700 border border-transparent hover:border-indigo-200 dark:hover:border-indigo-500/50 transition-all shadow-sm"
-            >
-              <div className="flex items-center">
-                <div className="bg-indigo-100 dark:bg-indigo-900/50 p-2 rounded-lg mr-4 text-indigo-600 dark:text-indigo-400">
+            <div key={lecture.id} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-800/50">
+              
+              <div 
+                className="flex items-center p-4 cursor-pointer hover:bg-white dark:hover:bg-gray-700 transition-colors group"
+                onClick={() => handleLectureSelect(lecture)}
+              >
+                {/* 1. Стрелочка слева (Кнопка раскрытия списка задач) */}
+                <button 
+                    onClick={(e) => toggleLectureExpand(lecture.id, e)}
+                    className={`p-2 mr-3 rounded-full transition-all ${
+                        expandedLectures[lecture.id] 
+                        ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600' 
+                        : 'text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                >
+                    {expandedLectures[lecture.id] ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </button>
+
+                {/* Иконка типа контента */}
+                <div className="bg-indigo-100 dark:bg-indigo-900/50 p-2 rounded-lg mr-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0">
                   <BookOpen size={20} />
                 </div>
+                
+                {/* Название и мета-информация */}
                 <div className="flex-grow">
-                   <h4 className="font-bold text-gray-900 dark:text-gray-100">
-                     {idx + 1}. {lecture.title}
+                   <h4 className="font-bold text-gray-900 dark:text-gray-100 text-lg group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                     {lecture.title}
                    </h4>
-                   <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">{lecture.content}</p>
+                   <div className="flex items-center mt-1 text-sm text-gray-500 dark:text-gray-400">
+                       <span className="mr-4">{lecture.tasks?.length || 0} заданий</span>
+                       {lecture.completed && (
+                           <span className="text-green-500 flex items-center font-medium">
+                               <CheckCircle size={14} className="mr-1"/> Пройдено
+                           </span>
+                       )}
+                   </div>
                 </div>
-                {lecture.completed && <CheckCircle className="text-green-500" size={20} />}
+                
+                {/* Play иконку УБРАЛИ */}
               </div>
+
+              {/* Выпадающий список задач */}
+              {expandedLectures[lecture.id] && lecture.tasks?.length > 0 && (
+                  <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-2 pl-4 md:pl-20">
+                      {lecture.tasks.map((task) => (
+                          <div 
+                            key={task.id} 
+                            onClick={(e) => { e.stopPropagation(); handleTaskSelect(task); }} 
+                            className="flex items-center p-3 mb-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"
+                          >
+                             <div className="mr-3 text-gray-400 min-w-[20px] text-center">
+                                {task.type === 'numeric' && <Hash size={16} />}
+                                {task.type === 'multiple-choice' && <CheckCircle size={16} />}
+                                {task.type === 'open' && <FileText size={16} />}
+                             </div>
+                             <div className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate pr-4">
+                                {/* Обрезаем текст вопроса, если длинный */}
+                                {task.question.replace(/[*_#`]/g, '').substring(0, 80)}
+                                {task.question.length > 80 ? '...' : ''}
+                             </div>
+                          </div>
+                      ))}
+                  </div>
+              )}
+              
+              {/* Сообщение, если задач нет, но список раскрыли */}
+              {expandedLectures[lecture.id] && (!lecture.tasks || lecture.tasks.length === 0) && (
+                  <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4 pl-20 text-sm text-gray-400 italic">
+                      Нет заданий к этой теме.
+                  </div>
+              )}
+
             </div>
           ))}
+
+
         </div>
       </div>
     </div>

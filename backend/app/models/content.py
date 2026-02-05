@@ -28,6 +28,9 @@ class Course(Base):
 
     topics = relationship("Topic", back_populates="course")
 
+    def __str__(self):
+        return self.title
+
 class Topic(Base):
     __tablename__ = "topics"
 
@@ -39,49 +42,78 @@ class Topic(Base):
     course = relationship("Course", back_populates="topics")
     units = relationship("ContentUnit", back_populates="topic")
 
+    def __str__(self):
+        return f"{self.title} (Курс: {self.course_id})"
+
 class ContentUnit(Base):
     __tablename__ = "content_units"
 
     id = Column(Integer, primary_key=True, index=True)
     topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False)
-    type = Column(String, nullable=False) # lecture / task
+    type = Column(String, nullable=False) # lecture / task / exam
     order_index = Column(Integer, default=0)
     is_hidden = Column(Boolean, default=False)
 
     topic = relationship("Topic", back_populates="units")
-    # Используем uselist=False для связи 1-к-1
+    
+    # 1. ЛЕКЦИЯ (Остается 1-к-1, uselist=False)
     lecture = relationship("Lecture", back_populates="unit", uselist=False)
-    task = relationship("Task", back_populates="unit", uselist=False)
+    
+    # 2. ЗАДАЧИ (Стало 1-ко-Многим, убираем uselist=False и переименовываем в tasks)
+    # Было: task = relationship("Task", back_populates="unit", uselist=False)
+    # Стало:
+    tasks = relationship("Task", back_populates="unit") 
+
+    def __str__(self):
+        return f"{self.topic_id} (Тип: {self.type})"
+
 
 class Lecture(Base):
     __tablename__ = "lectures"
 
     id = Column(Integer, primary_key=True, index=True)
     unit_id = Column(Integer, ForeignKey("content_units.id"), unique=True, nullable=False)
-    content_md = Column(Text, nullable=False) # Markdown текст
-    
-    # Статус генерации озвучки
-    tts_status = Column(String, default="none") # none, pending, ready, failed
+    content_md = Column(Text, nullable=False)
+    lecture_name = Column(Text, nullable=False, default="Без названия")
+    tts_status = Column(String, default="none")
     audio_file_id = Column(Integer, ForeignKey("files.id"), nullable=True)
 
     unit = relationship("ContentUnit", back_populates="lecture")
-    audio = relationship("File") # Чтобы подтянуть ссылку на файл, если нужно
+    audio = relationship("File")
+
+    # 3. Добавляем связь Лекции с задачами
+    tasks = relationship("Task", back_populates="lecture")
+
+    def __str__(self):
+        return f"{self.lecture_name}"
+
 
 class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
-    unit_id = Column(Integer, ForeignKey("content_units.id"), unique=True, nullable=False)
-    type = Column(String, default="quiz") # quiz / code / open
     
-    # JSONB идеален для Postgres (храним структуру вопроса и валидацию)
-    content = Column(JSONB, nullable=False) # {question: "...", options: []}
-    validation = Column(JSONB, nullable=False) # {correct_answer: "A"}
+    # 4. Юнит теперь не уникален (unique=False) и может быть пустым (nullable=True)
+    unit_id = Column(Integer, ForeignKey("content_units.id"), unique=False, nullable=True)
+    
+    # 5. Ссылка на лекцию
+    lecture_id = Column(Integer, ForeignKey("lectures.id"), nullable=True)
 
-    difficulty = Column(Integer, default=1)  # 1-5 уровень сложности
+    type = Column(String, default="quiz")
+    content = Column(JSONB, nullable=False)
+    validation = Column(JSONB, nullable=False)
+
+    difficulty = Column(Integer, default=1)
     explanation = Column(Text, nullable=True) 
-    tags = Column(ARRAY(String), nullable=True)  # ['math', 'algebra']
-    requires_ai_check = Column(Boolean, default=False)  # нужно ли проверять ИИ
-    file_upload_allowed = Column(Boolean, default=False)  # можно ли прикреплять файлы
+    tags = Column(ARRAY(String), nullable=True)
+    requires_ai_check = Column(Boolean, default=False)
+    file_upload_allowed = Column(Boolean, default=False)
 
-    unit = relationship("ContentUnit", back_populates="task")
+    # 6. Связи (Обрати внимание на back_populates)
+    # Здесь "tasks" (множественное число), значит в ContentUnit должно быть поле tasks
+    unit = relationship("ContentUnit", back_populates="tasks") 
+    
+    # Здесь "tasks", значит в Lecture должно быть поле tasks
+    lecture = relationship("Lecture", back_populates="tasks")
+    def __str__(self):
+        return f"{self.content}"

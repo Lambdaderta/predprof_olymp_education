@@ -3,11 +3,12 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
-    "./src/index.css"
   ],
-  darkMode: 'class',
+  darkMode: 'class', 
   theme: {
     extend: {},
   },
-  plugins: [],
+  plugins: [
+    require('@tailwindcss/typography'), 
+  ],
 }

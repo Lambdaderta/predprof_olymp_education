@@ -6,8 +6,9 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from sqlalchemy import text 
 import logging
-
+from app.core.admin import setup_admin 
 from app.api.v1.routes import api_router
+from app.api.v1.routes import ws 
 from app.core.config import settings
 from app.core.database import db_helper
 from app.core.exceptions import (
@@ -52,6 +53,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
         raise
+
+    setup_admin(app, db_helper.engine)
     
     yield
     
@@ -78,6 +81,7 @@ app.add_middleware(
 
 # Подключение роутеров
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(ws.router)
 
 @app.get("/", summary="Root endpoint", tags=["root"])
 async def root():

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from app.core.config import settings
 
+
 def get_password_hash(password: str) -> str:
     """Хеширование пароля с помощью bcrypt"""
     salt = bcrypt.gensalt()

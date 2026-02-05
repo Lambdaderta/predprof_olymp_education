@@ -9,12 +9,13 @@ from .learning import (
     KnowledgeGraph, 
     LearningSession, 
     ChatMessage,
-    SolutionAnalysis,    # Новая модель для анализа фото решений
-    LearningPlan        # Новая модель для персональных планов обучения
+    SolutionAnalysis,    
+    LearningPlan        
 )
+from .pvp import PVPMatch
+from .learning import UserTaskProgress
 from .system import BackgroundJob, Notification
 
-# Этот список нужен, чтобы IDE и инструменты видели, что экспортируется
 __all__ = [
     "Base",
     "User", "UserLimits", "UserRole",
@@ -23,5 +24,5 @@ __all__ = [
     "Course", "Topic", "ContentUnit", "Lecture", "Task",
     "Enrollment", "KnowledgeGraph", "LearningSession", "ChatMessage",
     "SolutionAnalysis", "LearningPlan",  
-    "BackgroundJob", "Notification",
+    "BackgroundJob", "Notification", "UserTaskProgress","PVPMatch",
 ]

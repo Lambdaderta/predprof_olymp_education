@@ -111,3 +111,9 @@ class RefreshTokenRequest(BaseModel):
 
 class TelegramBindRequest(BaseModel):
     telegram_id: int = Field(..., description="Telegram user ID to bind", ge=1)
+
+class UserStatsResponse(BaseModel):
+    courses_count: int = 0
+    lectures_count: int = 0
+    tasks_solved: int = 0
+    total_xp: int = 0

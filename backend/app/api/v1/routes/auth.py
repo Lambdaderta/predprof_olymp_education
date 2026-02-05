@@ -10,8 +10,13 @@ from app.core.schemas.auth import (
     UserResponse,
     Token,
     RefreshTokenRequest,
-    TelegramBindRequest
+    TelegramBindRequest,
+    UserStatsResponse
 )
+
+from sqlalchemy import func, select
+from app.models.learning import UserTaskProgress
+from app.models.user import User
 from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -206,3 +211,27 @@ async def bind_telegram_account(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
+
+@router.get("/stats", response_model=UserStatsResponse)
+async def get_user_stats(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(db_helper.session_getter)
+):
+    # 1. Считаем решенные задачи
+    tasks_query = select(func.count()).where(
+        UserTaskProgress.user_id == current_user.id,
+        UserTaskProgress.is_correct == True
+    )
+    tasks_res = await session.execute(tasks_query)
+    tasks_count = tasks_res.scalar() or 0
+
+    courses_count = 0 
+    
+    total_xp = tasks_count * 10
+
+    return UserStatsResponse(
+        courses_count=courses_count,
+        lectures_count=0, 
+        tasks_solved=tasks_count,
+        total_xp=total_xp
+    )

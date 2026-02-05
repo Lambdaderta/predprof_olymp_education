@@ -1,0 +1,38 @@
+// src/api/courses.js
+import axiosClient from './axiosClient';
+
+export const coursesApi = {
+  // Получить список всех курсов
+  getAll: async () => {
+    try {
+      const response = await axiosClient.get('/courses/');
+      return response.data;
+    } catch (error) {
+      console.error("Fetch courses error:", error);
+      return []; // Возвращаем пустой массив в случае ошибки, чтобы не крашить UI
+    }
+  },
+  
+  // Получить детальную информацию о курсе
+  getById: async (id) => {
+    try {
+      const response = await axiosClient.get(`/courses/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Fetch course ${id} error:`, error);
+      return null;
+    }
+  },
+    submitTask: async (taskId, answer, isCorrect) => {
+    try {
+      await axiosClient.post(`/courses/tasks/${taskId}/solve`, {
+        answer: answer,
+        is_correct: isCorrect
+      });
+      return true;
+    } catch (error) {
+      console.error("Submit task error:", error);
+      return false;
+    }
+  }
+};

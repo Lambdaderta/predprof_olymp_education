@@ -89,3 +89,16 @@ class LearningPlan(Base):
 
     # Связь
     user = relationship("User")
+
+class UserTaskProgress(Base):
+    __tablename__ = "user_task_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    
+    is_correct = Column(Boolean, default=False)
+    user_answer = Column(Text, nullable=True) 
+    
+    solved_at = Column(DateTime(timezone=True), server_default=func.now())
+    
