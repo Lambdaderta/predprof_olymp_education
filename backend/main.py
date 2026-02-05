@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"📝 Database: {masked_db_url}")
     logger.info(f"🔐 JWT Algorithm: {settings.security.JWT_ALGORITHM}")
     
-    # Проверка подключения к базе данных при старте
+    # Проверка подключения к базе данных при старте йоу
     try:
         async with db_helper.session_factory() as session:
             result = await session.execute(text("SELECT 1"))

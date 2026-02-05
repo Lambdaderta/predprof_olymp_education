@@ -76,7 +76,7 @@ class LectureAdmin(ModelView, model=Lecture):
     column_list = [Lecture.id, Lecture.unit]
     
     # При создании лекции мы выбираем существующий Юнит
-    form_columns = [Lecture.unit, Lecture.content_md, Lecture.tts_status]
+    form_columns = [Lecture.unit, Lecture.content_md, Lecture.tts_status, Lecture.lecture_name]
     
     icon = "fa-solid fa-book-open"
 
