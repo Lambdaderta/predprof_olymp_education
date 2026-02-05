@@ -9,11 +9,10 @@ export const coursesApi = {
       return response.data;
     } catch (error) {
       console.error("Fetch courses error:", error);
-      return []; // Возвращаем пустой массив в случае ошибки, чтобы не крашить UI
+      return []; 
     }
   },
   
-  // Получить детальную информацию о курсе
   getById: async (id) => {
     try {
       const response = await axiosClient.get(`/courses/${id}`);

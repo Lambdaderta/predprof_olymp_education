@@ -34,7 +34,7 @@ const Layout = () => {
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
           <Link to="/" className="flex items-center space-x-2 cursor-pointer">
             <h1 className="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
-              EduMind
+              PredProf Olympyad
             </h1>
           </Link>
           

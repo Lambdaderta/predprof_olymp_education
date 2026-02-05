@@ -37,4 +37,9 @@ export const authApi = {
     const response = await axiosClient.get('/auth/stats');
     return response.data;
   },
+
+  getPVpStats: async () => {
+    const response = await axiosClient.get('/pvp/stats');
+    return response.data;
+  },
 };
