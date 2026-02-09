@@ -44,23 +44,26 @@ class PVPMatchRepository:
         )
         await self.session.execute(stmt)
     
-    async def finish_match(self, match_id: int, player1_score: int, player2_score: int, 
-                          player1_rating_after: int, player2_rating_after: int):
-        """Завершить матч с результатами"""
-        stmt = (
-            update(PVPMatch)
-            .where(PVPMatch.id == match_id)
-            .values(
-                player1_score=player1_score,
-                player2_score=player2_score,
-                player1_rating_after=player1_rating_after,
-                player2_rating_after=player2_rating_after,
-                status="finished",
-                result=self._calculate_result(player1_score, player2_score),
-                finished_at=datetime.utcnow()
-            )
-        )
-        await self.session.execute(stmt)
+    async def finish_match(
+        self, 
+        match_id: int, 
+        p1_score: int, 
+        p2_score: int, 
+        p1_rating_after: int, 
+        p2_rating_after: int,
+        result: str = None  # ← ДОБАВИТЬ ЭТУ СТРОКУ
+    ):
+        match = await self.session.get(PVPMatch, match_id)
+        if match:
+            match.player1_score = p1_score
+            match.player2_score = p2_score
+            match.player1_rating_after = p1_rating_after
+            match.player2_rating_after = p2_rating_after
+            match.status = "finished"
+            match.finished_at = datetime.utcnow()
+            if result:  
+                match.result = result
+            await self.session.commit()
     
     async def cancel_match(self, match_id: int, reason: str):
         """Отменить матч"""

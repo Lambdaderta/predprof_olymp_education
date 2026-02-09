@@ -33,5 +33,14 @@ export const coursesApi = {
       console.error("Submit task error:", error);
       return false;
     }
+  },
+    generateSimilarTask: async (taskId) => {
+    try {
+      const response = await axiosClient.post(`/courses/tasks/${taskId}/generate-similar`);
+      return response.data;
+    } catch (error) {
+      console.error("Generate similar task error:", error);
+      throw error;
+    }
   }
 };

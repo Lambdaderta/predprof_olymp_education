@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, BookOpen, CheckCircle, BarChart3, StopCircle, 
   Volume2, Brain, Hash, Lightbulb, ChevronDown, ChevronUp, 
-  Check, X, FileText, Play 
+  Check, X, FileText, Play, Loader2
 } from 'lucide-react';
 import { coursesApi } from '../api/courses';
 import MarkdownRenderer from '../components/MarkdownRenderer';
@@ -26,6 +26,9 @@ const CourseDetail = () => {
   const [userAnswers, setUserAnswers] = useState({});
   const [showExplanation, setShowExplanation] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  
+  // Состояние генерации новой задачи
+  const [generating, setGenerating] = useState(false);
   
   useEffect(() => {
     const loadCourse = async () => {
@@ -80,6 +83,39 @@ const CourseDetail = () => {
     // Если решена (есть в userAnswers), то можно показать, если юзер сам захочет
     setShowExplanation(false);
     window.scrollTo(0, 0);
+  };
+
+  // Обработчик генерации похожей задачи
+  const handleGenerateSimilar = async () => {
+    if (!selectedTask) return;
+    
+    setGenerating(true);
+    
+    try {
+      // Генерируем новую задачу
+      const newTask = await coursesApi.generateSimilarTask(selectedTask.id);
+      
+      // Обновляем выбранную задачу
+      setSelectedTask(newTask);
+      
+      // Сбрасываем состояние ответа для новой задачи
+      setUserAnswers(prev => ({
+        ...prev,
+        [newTask.id]: { answer: '', isCorrect: undefined, solution: '' }
+      }));
+      
+      // Скрываем объяснение
+      setShowExplanation(false);
+      
+      // Скролл вверх к новой задаче
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      
+    } catch (error) {
+      alert("Не удалось сгенерировать задачу. Попробуйте позже.");
+      console.error("Generation error:", error);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   // Универсальная функция проверки
@@ -370,25 +406,47 @@ const CourseDetail = () => {
            
            {renderTaskInput()}
 
-           {/* Кнопка "Показать объяснение" только если ответ уже дан (любой) */}
-           <div className="flex justify-end mt-8 border-t dark:border-gray-700 pt-4">
+           {/* Кнопки после решения */}
+           <div className="flex justify-between mt-8 border-t dark:border-gray-700 pt-4">
+              {/* Кнопка генерации */}
+              {isAnswered && (
+                <button
+                  onClick={handleGenerateSimilar}
+                  disabled={generating}
+                  className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Генерируем...
+                    </>
+                  ) : (
+                    <>
+                      <Lightbulb className="mr-2 h-4 w-4" />
+                      Ещё задача
+                    </>
+                  )}
+                </button>
+              )}
+              
+              {/* Кнопка объяснения */}
               {isAnswered ? (
-                  <button 
-                    onClick={() => setShowExplanation(!showExplanation)}
-                    className="flex items-center text-indigo-500 hover:text-indigo-600 font-medium transition-colors"
-                  >
-                    <Lightbulb size={18} className="mr-2" />
-                    {showExplanation ? 'Скрыть объяснение' : 'Показать объяснение'}
-                  </button>
+                <button 
+                  onClick={() => setShowExplanation(!showExplanation)}
+                  className="flex items-center text-indigo-500 hover:text-indigo-600 font-medium transition-colors"
+                >
+                  <Brain size={18} className="mr-2" />
+                  {showExplanation ? 'Скрыть объяснение' : 'Показать объяснение'}
+                </button>
               ) : (
-                  <div className="text-sm text-gray-400 italic">
-                      Попробуйте решить задачу, чтобы увидеть объяснение.
-                  </div>
+                <div className="text-sm text-gray-400 italic">
+                  Решите задачу, чтобы увидеть объяснение.
+                </div>
               )}
            </div>
 
            {showExplanation && selectedTask.explanation && (
-             <div className="mt-4 p-5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50 animation-fade-in">
+             <div className="mt-4 p-5 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
                <h4 className="font-bold text-indigo-900 dark:text-indigo-200 mb-2 flex items-center">
                    <Brain size={18} className="mr-2"/> Пояснение:
                </h4>

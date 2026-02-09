@@ -3,15 +3,19 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-
+import httpx
 from app.core.database import db_helper
 from app.api.v1.routes.auth import get_current_user 
+import re
+import logging
+import json as json_lib
 from app.models.user import User
 from app.models.content import Course, Topic, ContentUnit, Lecture, Task
 from app.models.learning import UserTaskProgress 
 from app.core.schemas.content import CourseSummary, CourseDetail, LectureSchema, TaskSchema
 
-router = APIRouter(prefix="/courses", tags=["courses"])
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 
@@ -165,3 +169,148 @@ async def solve_task(
     
     await session.commit()
     return {"status": "success"}
+
+
+@router.post("/tasks/{task_id}/generate-similar")
+async def generate_similar_task(
+    task_id: int,
+    session: AsyncSession = Depends(db_helper.session_getter),
+    current_user: User = Depends(get_current_user)
+):
+    # 1. Получаем оригинальную задачу
+    stmt = select(Task).where(Task.id == task_id)
+    result = await session.execute(stmt)
+    original_task = result.scalar_one_or_none()
+    
+    if not original_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # 2. Формируем промпт для модели
+    question = original_task.content.get("question", "")
+    correct_answer = original_task.validation.get("correct_answer", "")
+    explanation = original_task.explanation or ""
+    difficulty = original_task.difficulty or 1
+    
+    prompt = f"""Ты — преподаватель олимпиадной математики. Создай НОВУЮ задачу, аналогичную приведенной ниже.
+
+### Оригинальная задача:
+Тип: {original_task.type}
+Уровень сложности: {difficulty}
+Вопрос: {question}
+Правильный ответ: {correct_answer}
+Объяснение: {explanation}
+
+### Требования:
+1. Сохрани структуру доказательства и логику решения
+2. Измени числовые параметры (например, 2024 → другое число) и контекст (имена, объекты)
+3. Задача должна быть корректной и иметь однозначное решение
+4. Объяснение должно содержать пошаговое доказательство с новыми данными
+5. Уровень сложности должен остаться таким же
+
+### Вывод:
+Верни ТОЛЬКО ЧИСТЫЙ JSON без комментариев, без тройных кавычек, без префиксов:
+{{
+  "question": "Новый вопрос...",
+  "correct_answer": "Новый ответ",
+  "explanation": "Новое объяснение..."
+}}"""
+
+    # 3. Отправляем запрос на локальный LLM сервер
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:  # Увеличен таймаут до 60 сек
+            response = await client.post( 
+                "http://127.0.0.1:8086/v1/chat/completions",
+                json={
+                    "model": "Qwen3-4B-Instruct-2507-Q4_K_M",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False
+                }
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"LLM server error {response.status_code}: {response.text}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"LLM server error: {response.status_code}"
+                )
+            
+            # 4. Парсим ответ модели
+            llm_response = response.json()
+            generated_text = llm_response["choices"][0]["message"]["content"].strip()
+            
+            # НАДЕЖНЫЙ ПАРСИНГ: убираем ```json и ``` блоки
+            # Регулярка для извлечения JSON из любых обёрток
+            json_match = re.search(r'\{[\s\S]*\}', generated_text)
+            if not json_match:
+                logger.error(f"Failed to extract JSON from model response: {generated_text[:200]}...")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Model did not return valid JSON format"
+                )
+            
+            json_str = json_match.group(0)
+            generated_data = json_lib.loads(json_str)
+            
+            logger.info(f"Successfully parsed generated task: {generated_data.get('question', '')[:50]}...")
+            
+    except json_lib.JSONDecodeError as e:
+        logger.error(f"JSON decode error. Raw response:\n{generated_text}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Invalid JSON from model. Try again."
+        )
+    except httpx.TimeoutException:
+        logger.error("LLM server timeout after 120 seconds")
+        raise HTTPException(
+            status_code=500,
+            detail="Generation timeout. Model is slow or overloaded."
+        )
+    except Exception as e:
+        logger.error(f"Error generating task: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Generation failed: {str(e)[:100]}"
+        )
+    
+    # 5. Валидация ответа модели
+    required_fields = ["question", "correct_answer", "explanation"]
+    missing = [f for f in required_fields if f not in generated_data]
+    if missing:
+        logger.error(f"Missing fields in model response: {missing}. Got keys: {list(generated_data.keys())}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Model response missing fields: {', '.join(missing)}"
+        )
+    
+    # 6. Создаем новую задачу
+    new_task = Task(
+        unit_id=original_task.unit_id,
+        lecture_id=original_task.lecture_id,
+        type=original_task.type,
+        content={
+            "question": generated_data["question"]
+        },
+        validation={
+            "correct_answer": generated_data["correct_answer"]
+        },
+        explanation=generated_data["explanation"],
+        difficulty=original_task.difficulty,
+        tags=original_task.tags,
+        requires_ai_check=original_task.requires_ai_check,
+        file_upload_allowed=original_task.file_upload_allowed
+    )
+    
+    session.add(new_task)
+    await session.commit()
+    await session.refresh(new_task)
+    
+    # 7. Возвращаем новую задачу в формате TaskSchema
+    return {
+        "id": new_task.id,
+        "type": new_task.type,
+        "question": new_task.content.get("question", ""),
+        "options": new_task.content.get("options", []),
+        "correctAnswer": new_task.validation.get("correct_answer"),
+        "explanation": new_task.explanation,
+        "is_solved": False
+    }

@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     global process_manager
     
     # Берем пути из переменных окружения или используем дефолтные
-    llama_cpp_path = os.getenv("LLAMA_CPP_PATH", "./llama.cpp/build/bin/llama-server")
+    llama_cpp_path = os.getenv("LLAMA_CPP_PATH", "./llama-server")
     models_dir = os.getenv("MODELS_DIR", "./models")
     
     # Если пути относительные, делаем их абсолютными относительно рабочей директории
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     process_manager = ProcessManager(
         llama_cpp_path=llama_cpp_path,
         models_dir=models_dir,
-        inactivity_timeout=10
+        inactivity_timeout=120
     )
     
     # Запускаем фоновую задачу для очистки
@@ -244,6 +244,7 @@ async def create_completion(request: CompletionRequest):
 async def stream_completion(base_url: str, params: Dict, model_name: str):
     """Stream ответ"""
     import httpx
+    import time
     
     async with httpx.AsyncClient(timeout=60.0) as client:
         async with client.stream(
@@ -253,36 +254,42 @@ async def stream_completion(base_url: str, params: Dict, model_name: str):
             headers={"Content-Type": "application/json"}
         ) as response:
             
+            request_id = f"chatcmpl-{int(time.time())}"
+            
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
                     data = line[6:]
+                    
+                    # [DONE] marker
                     if data.strip() == "[DONE]":
-                        yield f"data: {data}\n\n"
+                        yield "data: [DONE]\n\n"
                         break
                     
                     try:
                         json_data = json.loads(data)
                         content = json_data.get("content", "")
                         
-                        choice = {
-                            "index": 0,
-                            "delta": {"content": content} if content else {},
-                            "finish_reason": None
-                        }
-                        
-                        event = {
-                            "id": f"chatcmpl-{hash(str(params))}",
+                        # Формируем чанк в формате OpenAI
+                        chunk = {
+                            "id": request_id,
                             "object": "chat.completion.chunk",
-                            "created": int(asyncio.get_event_loop().time()),
+                            "created": int(time.time()),
                             "model": model_name,
-                            "choices": [choice]
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": content} if content else {},
+                                "finish_reason": None
+                            }]
                         }
                         
-                        yield f"data: {json.dumps(event)}\n\n"
+                        # ВАЖНО: используем ensure_ascii=False для кириллицы и спецсимволов!
+                        yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                         
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse line: {line} | Error: {e}")
                         continue
             
+            # Обновляем активность ПОСЛЕ завершения стрима
             if process_manager:
                 await process_manager.update_activity(model_name)
 

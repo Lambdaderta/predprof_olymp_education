@@ -19,7 +19,7 @@ class ProcessManager:
         inactivity_timeout: int = 60
     ):
         # Берем из переменных окружения, если не передано
-        self.llama_cpp_path = Path(llama_cpp_path or os.getenv("LLAMA_CPP_PATH", "./llama.cpp/build/bin/llama-server"))
+        self.llama_cpp_path = Path(llama_cpp_path or os.getenv("LLAMA_CPP_PATH", "./llama-server"))
         self.models_dir = Path(models_dir or os.getenv("MODELS_DIR", "./models"))
         
         # Делаем пути абсолютными
@@ -35,6 +35,7 @@ class ProcessManager:
         # Словарь для хранения информации о запущенных серверах
         self.active_servers: Dict[str, dict] = {}
         self.lock = asyncio.Lock()
+        self.inactivity_timeout = inactivity_timeout
         
         # Автоматически обнаруживаем модели
         self.model_configs = self._discover_models()

@@ -8,7 +8,7 @@ import uvicorn
 
 if __name__ == "__main__":
     # Проверяем наличие llama.cpp
-    llama_path = "llama.cpp/build/bin/llama-server"
+    llama_path = "llama-server"
     if not os.path.exists(llama_path):
         print(f"ERROR: llama.cpp server not found at {llama_path}")
         print("Please build it first:")

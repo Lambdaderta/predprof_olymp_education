@@ -28,15 +28,19 @@ Deprecated==1.3.1
 dnspython==2.8.0
 ecdsa==0.19.1
 email-validator==2.3.0
+eralchemy==1.6.0
 etelemetry==0.3.1
 fastapi==0.128.0
 filelock==3.20.3
 fitz==0.0.1.dev2
 frozenlist==1.8.0
 gevent==25.9.1
+graphviz==0.21
 greenlet==3.3.0
 h11==0.16.0
+httpcore==1.0.9
 httplib2==0.31.1
+httpx==0.28.1
 idna==3.11
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -64,6 +68,7 @@ platformdirs==4.5.1
 prompt_toolkit==3.0.52
 propcache==0.4.1
 prov==2.1.1
+psycopg2-binary==2.9.11
 puremagic==1.30
 pyasn1==0.6.1
 pycparser==2.23
