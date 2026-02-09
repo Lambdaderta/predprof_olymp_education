@@ -1,0 +1,89 @@
+services:
+  pg:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: aio_edu
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+  llm-server:
+    build:
+      context: ./ml/llm          # ← КРИТИЧЕСКИ: правильный путь к твоему рабочему серверу
+      dockerfile: Dockerfile
+    ports:
+      - "8086:8000"              # хост:8086 → контейнер:8000
+    environment:
+      - MODELS_DIR=/models
+      - LLAMA_CPP_PATH=/usr/local/bin/llama-server
+      - PORT=8000
+      - HOST=0.0.0.0
+      - LOG_LEVEL=INFO
+      - INACTIVITY_TIMEOUT=60
+    volumes:
+      - ./ml/llm/models:/models  # ← Путь к твоим моделям
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@pg:5432/aio_edu
+      - MINIO_ENDPOINT=minio:9000
+      - LLM_SERVER_URL=http://llm-server:8000  # ← ВАЖНО: внутри докер-сети порт 8000 (не 8086!)
+      - DEBUG=True
+    depends_on:
+      pg:
+        condition: service_healthy
+      llm-server:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=/api/v1  # ← Относительный путь (браузер сам добавит хост)
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  minio_data:
