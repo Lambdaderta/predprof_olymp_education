@@ -1,12 +1,11 @@
-FROM python:3.11-slim
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip libgl1 libglib2.0-0 curl wget \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    libgl1 libglib2.0-0 curl\
-    && rm -rf /var/lib/apt/lists/*
-
-# Копируем ПРЕДВАРИТЕЛЬНО СОБРАННЫЙ бинарник
 COPY llama-server /usr/local/bin/llama-server
 RUN chmod +x /usr/local/bin/llama-server
 

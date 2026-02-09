@@ -210,12 +210,10 @@ class PVPGameManager:
             room.get("match_duration", 300)
         )
 
-    # === СТАРТ ИГРЫ (СИНХРОННОЕ РЕШЕНИЕ ЗАДАЧ) ===
-    async def start_game(self, p1_id: int, p2_id: int, topic_id: Optional[int] = None, 
+    async def start_game(self, p1_id: int, p2_id: int, topic_id: Optional[int] = None,
                         task_count: int = 5, match_duration: int = 300):
         task_count = max(1, min(task_count, 10))
         match_duration = max(60, min(match_duration, 1800))
-        
         tasks = await self._get_random_tasks(task_count, topic_id)
         if not tasks or len(tasks) < task_count:
             error_msg = f"Недостаточно задач. Доступно: {len(tasks) if tasks else 0}"
@@ -232,7 +230,6 @@ class PVPGameManager:
 
             p1_rating = p1.elo_rating if p1.elo_rating is not None else 1000
             p2_rating = p2.elo_rating if p2.elo_rating is not None else 1000
-            
             match_repo = PVPMatchRepository(session)
             tasks_meta = [{"id": t["id"], "type": t["type"]} for t in tasks]
             match = await match_repo.create_match(p1_id, p2_id, p1_rating, p2_rating, tasks_meta)
@@ -244,7 +241,7 @@ class PVPGameManager:
         self.user_games[p2_id] = game_id
         self.game_locks[game_id] = asyncio.Lock()
 
-        # 🔑 КРИТИЧЕСКИ ВАЖНАЯ СТРУКТУРА С СИНХРОННЫМИ ЗАДАЧАМИ
+        # 🔑 АСИНХРОННАЯ СТРУКТУРА: отдельные индексы задач для каждого игрока
         game_state = {
             "game_id": game_id,
             "match_id": match_id,
@@ -254,9 +251,8 @@ class PVPGameManager:
             "p2_rating": p2_rating,
             "scores": {str(p1_id): 0, str(p2_id): 0},
             "tasks": tasks,
-            "current_task_index": 0,  # ← ОДНА ЗАДАЧА ДЛЯ ОБОИХ
-            "attempts": {str(p1_id): 0, str(p2_id): 0},  # Попытки на текущей задаче
-            "answers_submitted": {str(p1_id): False, str(p2_id): False},  # Ответил ли игрок на текущую задачу
+            "player_task_index": {str(p1_id): 0, str(p2_id): 0},  # ← КАЖДЫЙ НА СВОЁЙ ЗАДАЧЕ
+            "attempts": {str(p1_id): 0, str(p2_id): 0},
             "finished_players": set(),
             "status": "countdown",
             "match_duration": match_duration,
@@ -272,15 +268,22 @@ class PVPGameManager:
 
         # Старт игры
         game_state["status"] = "playing"
-        current_task = tasks[0]
-        await self.broadcast_to_game(game_id, {
+        await self.send_personal_message({
             "type": "game_start",
-            "current_task": current_task,
+            "current_task": tasks[0],
             "task_number": 1,
             "total_tasks": len(tasks),
             "timer": match_duration,
             "attempts_left": self.MAX_ATTEMPTS_PER_TASK
-        })
+        }, p1_id)
+        await self.send_personal_message({
+            "type": "game_start",
+            "current_task": tasks[0],
+            "task_number": 1,
+            "total_tasks": len(tasks),
+            "timer": match_duration,
+            "attempts_left": self.MAX_ATTEMPTS_PER_TASK
+        }, p2_id)
 
         # Запуск таймера матча
         self.game_timers[game_id] = asyncio.create_task(self._game_loop(game_id))
@@ -292,14 +295,15 @@ class PVPGameManager:
                 game = self.active_games.get(game_id)
                 if not game or game["status"] != "playing":
                     break
-                
+
                 if game["timer"] <= 0:
+                    # ⚡ ВРЕМЯ ВЫШЛО — СРАЗУ ЗАВЕРШАЕМ МАТЧ
                     await self.finish_game(game_id, reason="time_over")
                     break
-                
+
                 await asyncio.sleep(1)
                 game["timer"] -= 1
-                
+
                 # Отправляем обновление каждые 5 сек или при критическом времени
                 if game["timer"] % 5 == 0 or game["timer"] <= 10:
                     p1_done = str(game["p1"]) in game["finished_players"]
@@ -307,7 +311,6 @@ class PVPGameManager:
                     await self.broadcast_to_game(game_id, {
                         "type": "match_update",
                         "timer": game["timer"],
-                        "current_task_index": game["current_task_index"],
                         "scores": game["scores"],
                         "p1_done": p1_done,
                         "p2_done": p2_done
@@ -321,42 +324,30 @@ class PVPGameManager:
         game = self.active_games.get(game_id)
         if not game or game["status"] != "playing":
             return
-        
+
         uid_str = str(user_id)
-        opponent_id = game["p2"] if user_id == game["p1"] else game["p1"]
+        opponent_id = game["p2"] if user_id == game["p1"] else game["p2"]
         opponent_str = str(opponent_id)
-        
+
         # Проверка: игрок уже завершил матч?
         if uid_str in game["finished_players"]:
             return
-        
-        # Проверка: игрок уже ответил на эту задачу?
-        if game["answers_submitted"][uid_str]:
-            await self.send_personal_message({
-                "type": "error",
-                "message": "Вы уже ответили на эту задачу"
-            }, user_id)
+
+        # Текущая задача игрока
+        current_task_idx = game["player_task_index"][uid_str]
+        if current_task_idx >= len(game["tasks"]):
             return
-        
+
+        current_task = game["tasks"][current_task_idx]
+
         # Проверка лимита попыток
         game["attempts"][uid_str] += 1
         attempts_left = self.MAX_ATTEMPTS_PER_TASK - game["attempts"][uid_str]
-        
-        current_task = game["tasks"][game["current_task_index"]]
         is_correct = self._validate_answer(answer, current_task)
-        
+
         if is_correct:
             game["scores"][uid_str] += 1
-            game["answers_submitted"][uid_str] = True
-        elif attempts_left <= 0:
-            # Исчерпаны попытки - помечаем как завершившего задачу без очка
-            game["answers_submitted"][uid_str] = True
-            # Отправляем уведомление игроку об исчерпании попыток
-            await self.send_personal_message({
-                "type": "attempts_exhausted",
-                "correct_answer": current_task["correct_answer"]
-            }, user_id)
-        
+
         # Отправляем результат игроку
         await self.send_personal_message({
             "type": "answer_result",
@@ -364,38 +355,28 @@ class PVPGameManager:
             "attempts_left": attempts_left if not is_correct and attempts_left > 0 else 0,
             "correct_answer": current_task["correct_answer"] if is_correct else None
         }, user_id)
-        
-        # Отправляем обновление прогресса сопернику
-        await self.send_personal_message({
-            "type": "opponent_progress",
-            "opponent_answered": game["answers_submitted"][uid_str],
-            "opponent_score": game["scores"][uid_str]
-        }, opponent_id)
-        
-        # Проверка: оба игрока завершили текущую задачу?
-        p1_submitted = game["answers_submitted"][str(game["p1"])]
-        p2_submitted = game["answers_submitted"][str(game["p2"])]
-        
-        if p1_submitted and p2_submitted:
-            # Переход к следующей задаче
-            game["current_task_index"] += 1
-            game["attempts"] = {str(game["p1"]): 0, str(game["p2"]): 0}
-            game["answers_submitted"] = {str(game["p1"]): False, str(game["p2"]): False}
-            
-            if game["current_task_index"] >= len(game["tasks"]):
-                # Оба игрока завершили все задачи
-                game["finished_players"].update([str(game["p1"]), str(game["p2"])])
-                await self.finish_game(game_id, reason="all_tasks_completed")
-            else:
-                # Следующая задача
-                next_task = game["tasks"][game["current_task_index"]]
-                await self.broadcast_to_game(game_id, {
-                    "type": "next_task",
-                    "current_task": next_task,
-                    "task_number": game["current_task_index"] + 1,
-                    "total_tasks": len(game["tasks"]),
-                    "attempts_left": self.MAX_ATTEMPTS_PER_TASK
-                })
+
+        # Переход к следующей задаче (если правильно ИЛИ исчерпаны попытки)
+        if is_correct or attempts_left <= 0:
+            game["player_task_index"][uid_str] += 1
+            game["attempts"][uid_str] = 0
+
+            # Проверка: игрок завершил все задачи?
+            if game["player_task_index"][uid_str] >= len(game["tasks"]):
+                game["finished_players"].add(uid_str)
+                # ⚡ СРАЗУ ЗАВЕРШАЕМ МАТЧ С ПОБЕДОЙ ЭТОГО ИГРОКА
+                await self.finish_game(game_id, reason="player_completed_all_tasks")
+                return
+
+            # Следующая задача
+            next_task = game["tasks"][game["player_task_index"][uid_str]]
+            await self.send_personal_message({
+                "type": "next_task",
+                "current_task": next_task,
+                "task_number": game["player_task_index"][uid_str] + 1,
+                "total_tasks": len(game["tasks"]),
+                "attempts_left": self.MAX_ATTEMPTS_PER_TASK
+            }, user_id)
 
     # === ВЫХОД ИЗ МАТЧА (ЗАСЧИТЫВАЕТСЯ ПОРАЖЕНИЕ) ===
     async def leave_game(self, user_id: int, game_id: str):
@@ -407,35 +388,43 @@ class PVPGameManager:
         print(f"🚪 Player {user_id} LEFT game {game_id} → FORFEIT")
         await self.finish_game(game_id, disconnected_player_id=user_id, reason="player_left")
 
-    # === ЗАВЕРШЕНИЕ МАТЧА (С РАСЧЁТОМ ELO) ===
-    async def finish_game(self, game_id: str, reason: str = "completed", 
-                         disconnected_player_id: Optional[int] = None, error: bool = False):
+
+    async def finish_game(self, game_id: str, reason: str = "completed",
+                        disconnected_player_id: Optional[int] = None, error: bool = False):
         game = self.active_games.get(game_id)
         if not game:
             return
-        
+
         # Останавливаем таймер
         if game_id in self.game_timers:
             self.game_timers[game_id].cancel()
-        
+            del self.game_timers[game_id]
+
         p1_id, p2_id = game["p1"], game["p2"]
         s1 = game["scores"].get(str(p1_id), 0)
         s2 = game["scores"].get(str(p2_id), 0)
-        
+
+        # 🔑 ИНИЦИАЛИЗИРУЕМ e1/e2 ДО УСЛОВИЙ
+        p1_r, p2_r = game["p1_rating"], game["p2_rating"]
+        e1 = 1 / (1 + 10 ** ((p2_r - p1_r) / 400))
+        e2 = 1 / (1 + 10 ** ((p1_r - p2_r) / 400))
+
         # Обработка выхода/отключения игрока
         if disconnected_player_id is not None:
             if disconnected_player_id == p1_id:
                 winner_id = p2_id
-                s1 = -1  # Помечаем как проигравшего
+                s1 = -1
             else:
                 winner_id = p1_id
                 s2 = -1
             result_str = "player1_win" if winner_id == p1_id else "player2_win"
+            r1 = 1.0 if winner_id == p1_id else 0.0
+            r2 = 1.0 - r1
         elif error:
             # Техническая ошибка - отмена матча, рейтинг не меняется
             async with db_helper.session_factory() as session:
                 await PVPMatchRepository(session).cancel_match(
-                    game["match_id"], 
+                    game["match_id"],
                     f"error_{reason}"
                 )
                 await session.commit()
@@ -450,55 +439,41 @@ class PVPGameManager:
             if s1 > s2:
                 winner_id = p1_id
                 result_str = "player1_win"
+                r1, r2 = 1.0, 0.0
             elif s2 > s1:
                 winner_id = p2_id
                 result_str = "player2_win"
+                r1, r2 = 0.0, 1.0
             else:
                 winner_id = None
                 result_str = "draw"
-        
-        # Расчёт Elo
-        p1_r, p2_r = game["p1_rating"], game["p2_rating"]
-        if disconnected_player_id is not None:
-            # Принудительная победа оставшегося игрока
-            r1 = 1.0 if winner_id == p1_id else 0.0
-            r2 = 1.0 - r1
-        else:
-            # Стандартный расчёт по формуле Elo
-            e1 = 1 / (1 + 10 ** ((p2_r - p1_r) / 400))
-            e2 = 1 / (1 + 10 ** ((p1_r - p2_r) / 400))
-            r1 = 1.0 if s1 > s2 else (0.5 if s1 == s2 else 0.0)
-            r2 = 1.0 - r1
-        
+                r1 = r2 = 0.5
+
+        # Расчёт нового рейтинга
         new_r1 = round(p1_r + self.K * (r1 - e1))
         new_r2 = round(p2_r + self.K * (r2 - e2))
-        
+
         # Сохранение в БД
         async with db_helper.session_factory() as session:
             ur = UserRepository(session)
             mr = PVPMatchRepository(session)
-            
-            # Обновляем рейтинги
             await ur.update_elo_rating(p1_id, new_r1)
             await ur.update_elo_rating(p2_id, new_r2)
-            
-            # Фиксируем результат матча
             await mr.finish_match(
-                game["match_id"], 
-                max(s1, 0), 
-                max(s2, 0), 
-                new_r1, 
+                game["match_id"],
+                max(s1, 0),
+                max(s2, 0),
+                new_r1,
                 new_r2,
                 result=result_str
             )
             await session.commit()
-        
-        # Отправка результата игрокам
+
+        # Отправка результата
         rating_changes = {
             str(p1_id): new_r1 - p1_r,
             str(p2_id): new_r2 - p2_r
         }
-        
         await self.broadcast_to_game(game_id, {
             "type": "game_finished",
             "scores": {
@@ -510,8 +485,7 @@ class PVPGameManager:
             "reason": reason,
             "disconnected_player_id": disconnected_player_id
         })
-        
-        # Очистка
+
         self._cleanup_game(game_id)
 
     def _cleanup_game(self, game_id: str):

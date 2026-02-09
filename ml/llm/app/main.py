@@ -11,8 +11,14 @@ from typing import Dict
 from .process_manager import ProcessManager
 from .schemas import ChatCompletionRequest, CompletionRequest, ModelListResponse
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
+# 🔴 ВАЖНО: Настройка логирования с выводом в консоль
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Глобальный менеджер процессов
@@ -33,13 +39,14 @@ async def lifespan(app: FastAPI):
     if not os.path.isabs(models_dir):
         models_dir = os.path.join(os.getcwd(), models_dir)
     
-    logger.info(f"Llama.cpp path: {llama_cpp_path}")
-    logger.info(f"Models dir: {models_dir}")
+    logger.info(f"🚀 Llama.cpp path: {llama_cpp_path}")
+    logger.info(f"📚 Models dir: {models_dir}")
+    logger.info(f"📁 Current working directory: {os.getcwd()}")
     
     process_manager = ProcessManager(
         llama_cpp_path=llama_cpp_path,
         models_dir=models_dir,
-        inactivity_timeout=120
+        inactivity_timeout=300
     )
     
     # Запускаем фоновую задачу для очистки
@@ -71,7 +78,7 @@ async def cleanup_inactive_servers():
             if process_manager:
                 await process_manager.cleanup_inactive()
         except Exception as e:
-            logger.error(f"Error in cleanup task: {e}")
+            logger.error(f"Error in cleanup task: {e}", exc_info=True)
         await asyncio.sleep(5)
 
 @app.get("/v1/models")
@@ -81,6 +88,7 @@ async def list_models():
         raise HTTPException(status_code=500, detail="Process manager not initialized")
     
     models = process_manager.get_available_models()
+    logger.info(f"📋 Available models: {models}")
     return ModelListResponse(data=[
         {
             "id": model_name,
@@ -93,12 +101,16 @@ async def list_models():
 @app.post("/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
     """Chat completion endpoint (OpenAI compatible)"""
+    logger.debug(f"💬 Received chat completion request: model={request.model}, messages={len(request.messages)}")
+    
     if not process_manager:
         raise HTTPException(status_code=500, detail="Process manager not initialized")
     
     try:
-        # Получаем URL запущенного сервера
+        # 🔴 ИСПРАВЛЕНИЕ: Получаем URL запущенного сервера
+        logger.info(f"🔄 Getting server for model: {request.model}")
         base_url = await process_manager.get_server_for_model(request.model)
+        logger.info(f"✅ Server URL obtained: {base_url}")
         
         # Формируем промпт для llama.cpp из истории диалога
         prompt = ""
@@ -115,6 +127,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
         
         prompt += "### Assistant:\n"
         
+        logger.debug(f"📝 Generated prompt (first 200 chars): {prompt[:200]}...")
+        
         # Подготавливаем параметры для llama.cpp
         params = {
             "prompt": prompt,
@@ -127,30 +141,42 @@ async def create_chat_completion(request: ChatCompletionRequest):
             "top_k": 40
         }
         
+        logger.debug(f"⚙️ Request params: {params}")
+        
         if request.stream:
+            logger.info("🌊 Streaming response")
             return StreamingResponse(
                 stream_completion(base_url, params, request.model),
                 media_type="text/event-stream"
             )
         else:
             import httpx
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            logger.info(f"📡 Sending request to {base_url}/completion")
+            
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 response = await client.post(
                     f"{base_url}/completion",
                     json=params,
                     headers={"Content-Type": "application/json"}
                 )
                 
+                logger.info(f"📨 Response status: {response.status_code}")
+                logger.debug(f"📨 Response body: {response.text[:500]}")
+                
                 if response.status_code != 200:
+                    error_detail = response.text
+                    logger.error(f"❌ llama.cpp server error: {error_detail}")
                     raise HTTPException(
                         status_code=response.status_code,
-                        detail=response.text
+                        detail=error_detail
                     )
                 
                 result = response.json()
+                logger.debug(f"✅ Got result from llama.cpp: {result}")
+                
                 await process_manager.update_activity(request.model)
                 
-                return {
+                response_data = {
                     "id": f"chatcmpl-{hash(prompt)}",
                     "object": "chat.completion",
                     "created": int(time.time()),
@@ -169,21 +195,30 @@ async def create_chat_completion(request: ChatCompletionRequest):
                         "total_tokens": result.get("tokens_evaluated", 0) + result.get("tokens_predicted", 0)
                     }
                 }
+                
+                logger.info(f"✅ Returning chat completion response")
+                return response_data
             
     except ValueError as e:
+        logger.error(f"❌ ValueError: {e}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Error in chat completion: {e}")
+        logger.error(f"❌ Error in chat completion: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/v1/completions")
 async def create_completion(request: CompletionRequest):
     """Text completion endpoint"""
+    logger.debug(f"📝 Received completion request: model={request.model}")
+    
     if not process_manager:
         raise HTTPException(status_code=500, detail="Process manager not initialized")
     
     try:
-        base_url = await process_manager.update_activity(request.model)
+        # 🔴 КРИТИЧЕСКАЯ ОШИБКА: Было update_activity вместо get_server_for_model!
+        logger.info(f"🔄 Getting server for model: {request.model}")
+        base_url = await process_manager.get_server_for_model(request.model)  # ← ИСПРАВЛЕНО!
+        logger.info(f"✅ Server URL obtained: {base_url}")
         
         params = {
             "prompt": request.prompt if isinstance(request.prompt, str) else "\n".join(request.prompt),
@@ -195,33 +230,45 @@ async def create_completion(request: CompletionRequest):
             "repeat_penalty": 1.1
         }
         
+        logger.debug(f"⚙️ Request params: {params}")
+        
         if request.stream:
+            logger.info("🌊 Streaming response")
             return StreamingResponse(
                 stream_completion(base_url, params, request.model),
                 media_type="text/event-stream"
             )
         else:
             import httpx
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            logger.info(f"📡 Sending request to {base_url}/completion")
+            
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"{base_url}/completion",
                     json=params,
                     headers={"Content-Type": "application/json"}
                 )
                 
+                logger.info(f"📨 Response status: {response.status_code}")
+                logger.debug(f"📨 Response body: {response.text[:500]}")
+                
                 if response.status_code != 200:
+                    error_detail = response.text
+                    logger.error(f"❌ llama.cpp server error: {error_detail}")
                     raise HTTPException(
                         status_code=response.status_code,
-                        detail=response.text
+                        detail=error_detail
                     )
                 
                 result = response.json()
+                logger.debug(f"✅ Got result from llama.cpp: {result}")
+                
                 await process_manager.update_activity(request.model)
                 
-                return {
+                response_data = {
                     "id": f"cmpl-{hash(str(request.prompt))}",
                     "object": "text_completion",
-                    "created": int(asyncio.get_event_loop().time()),
+                    "created": int(time.time()),
                     "model": request.model,
                     "choices": [{
                         "text": result.get("content", ""),
@@ -234,11 +281,15 @@ async def create_completion(request: CompletionRequest):
                         "total_tokens": result.get("tokens_evaluated", 0) + result.get("tokens_predicted", 0)
                     }
                 }
+                
+                logger.info(f"✅ Returning completion response")
+                return response_data
             
     except ValueError as e:
+        logger.error(f"❌ ValueError: {e}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"Error in completion: {e}")
+        logger.error(f"❌ Error in completion: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 async def stream_completion(base_url: str, params: Dict, model_name: str):
@@ -246,7 +297,9 @@ async def stream_completion(base_url: str, params: Dict, model_name: str):
     import httpx
     import time
     
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    logger.info(f"🌊 Starting stream to {base_url}/completion")
+    
+    async with httpx.AsyncClient(timeout=120.0) as client:
         async with client.stream(
             "POST",
             f"{base_url}/completion",
@@ -255,6 +308,7 @@ async def stream_completion(base_url: str, params: Dict, model_name: str):
         ) as response:
             
             request_id = f"chatcmpl-{int(time.time())}"
+            logger.debug(f"🌊 Stream request ID: {request_id}")
             
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
@@ -262,6 +316,7 @@ async def stream_completion(base_url: str, params: Dict, model_name: str):
                     
                     # [DONE] marker
                     if data.strip() == "[DONE]":
+                        logger.debug("🌊 Stream completed")
                         yield "data: [DONE]\n\n"
                         break
                     
@@ -286,12 +341,13 @@ async def stream_completion(base_url: str, params: Dict, model_name: str):
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                         
                     except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse line: {line} | Error: {e}")
+                        logger.warning(f"⚠️ Failed to parse line: {line} | Error: {e}")
                         continue
             
             # Обновляем активность ПОСЛЕ завершения стрима
             if process_manager:
                 await process_manager.update_activity(model_name)
+                logger.debug(f"✅ Updated activity for model: {model_name}")
 
 @app.get("/health")
 async def health_check():
@@ -306,4 +362,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info("🚀 Starting server on http://0.0.0.0:8080")
+    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="debug")

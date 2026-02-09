@@ -59,7 +59,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://user:password@pg:5432/aio_edu
       - MINIO_ENDPOINT=minio:9000
-      - LLM_SERVER_URL=http://llm-server:8000  # ← ВАЖНО: внутри докер-сети порт 8000 (не 8086!)
+      - LLM_SERVER_URL=http://llm-server:8000
       - DEBUG=True
     depends_on:
       pg:
