@@ -1,17 +1,16 @@
-# Предпроф надо добавить ридми 
-
-## Запуск и начальная настройка проекта
+# Запуск и начальная настройка проекта
 
 ### Клонирование репозитория и сборка
 
-- git clone https://github.com/Lambdaderta/predprof_olymp_education
+```bash
+git clone https://github.com/Lambdaderta/predprof_olymp_education
 
-- cd predprof_olymp_education
-
-- docker-compose up -d --bulid
+# Скачайте модели через скрипт download.ipynb (просто запустить все) в predprof_olymp_education/ml/llm 
+cd predprof_olymp_education/
+docker-compose up -d --bulid
+```
 
 Переходите на http://localhost:3000, регестрируетесь
-
 ### После, для создания юзера с правами админа в консоли:
 
 - docker-compose exec pg psql -U user -d aio_edu -c "UPDATE users SET role = 'admin' WHERE email = 'example@email.com';"
