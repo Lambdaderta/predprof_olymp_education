@@ -225,7 +225,7 @@ async def generate_similar_task(
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post( 
-                "http://localhost:8080/v1/chat/completions",
+                "http://llm-server:8000/v1/chat/completions",
                 json={
                     "model": "Qwen3-4B-Instruct-2507-Q4_K_M",
                     "messages": [{"role": "user", "content": prompt}],

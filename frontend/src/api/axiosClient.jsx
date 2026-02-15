@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const axiosClient = axios.create({
-  baseURL: 'http://localhost:8000/api/v1', // Адрес твоего FastAPI
+  baseURL: '/api/v1', // Адрес твоего FastAPI (через reverse proxy)
   headers: {
     'Content-Type': 'application/json',
   },

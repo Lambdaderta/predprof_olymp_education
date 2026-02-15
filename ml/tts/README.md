@@ -27,7 +27,7 @@ docker compose ps
 
 4. Сервис будет доступен по адресу:
 ```
-http://localhost:8000
+http://tts-service:8000
 ```
 
 ### Остановка сервиса
