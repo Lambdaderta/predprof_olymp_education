@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 import httpx
 from app.core.database import db_helper
 from app.api.v1.routes.auth import get_current_user 
+import os
 import re
 import logging
 import json as json_lib
@@ -13,9 +14,9 @@ from app.models.user import User
 from app.models.content import Course, Topic, ContentUnit, Lecture, Task
 from app.models.learning import UserTaskProgress 
 from app.core.schemas.content import CourseSummary, CourseDetail, LectureSchema, TaskSchema
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 
@@ -225,7 +226,7 @@ async def generate_similar_task(
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
             response = await client.post( 
-                "http://llm-server:8000/v1/chat/completions",
+                f"{settings.ai.llm_server_url}v1/chat/completions",
                 json={
                     "model": "Qwen3-4B-Instruct-2507-Q4_K_M",
                     "messages": [{"role": "user", "content": prompt}],

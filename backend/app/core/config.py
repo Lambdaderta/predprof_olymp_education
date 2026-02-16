@@ -1,6 +1,6 @@
 # app/core/config.py
 from pydantic_settings import BaseSettings
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, HttpUrl
 from typing import List, Optional
 from functools import lru_cache
 
@@ -42,6 +42,10 @@ class AIConfig(BaseModel):
     AI_API_BASE: str = Field(..., description="AI API base URL")
     AI_DEFAULT_MODEL: str = Field("local-model", description="Default AI model")
     AI_TIMEOUT: int = Field(60, description="AI request timeout in seconds")
+    llm_server_url: HttpUrl = Field(
+        default="http://localhost:8080",
+        description="Base URL of the LLM server"
+    )
 
 class SecurityConfig(BaseModel):
     JWT_SECRET_KEY: SecretStr = Field(..., description="JWT secret key")
@@ -49,7 +53,6 @@ class SecurityConfig(BaseModel):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(30, description="Access token expiration")
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = Field(7, description="Refresh token expiration")
 
-# --- НУЖНЫЕ КОНФИГУРАЦИОННЫЕ КЛАССЫ (без Telegram) ---
 
 class PDFConfig(BaseModel):
     TEMP_DIR: str = Field("/tmp/pdf_processing", description="Temporary directory for PDF processing")
@@ -85,6 +88,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "*"
     ],
         
         description="CORS origins"
