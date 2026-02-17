@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip libgl1 libglib2.0-0 curl wget \
+    python3 python3-pip python-is-python3 libgl1 libglib2.0-0 curl wget \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
